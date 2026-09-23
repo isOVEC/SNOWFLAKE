@@ -153,3 +153,26 @@ input:focus { border-color: var(--gold); }
   #minimap { width: 140px; height: 140px; }
   .help-grid { grid-template-columns: 1fr; }
 }
+
+/* pixel icons */
+.ico { width: 14px; height: auto; image-rendering: pixelated; vertical-align: -2px; margin-left: 1px; }
+.rico { height: 18px; width: auto; image-rendering: pixelated; }
+.abico { width: 26px; height: auto; image-rendering: pixelated; position: relative; z-index: 0; }
+#ability .ab-cd, #recall .ab-cd { z-index: 1; }
+#ability .ab-key, #recall .ab-key { z-index: 2; }
+.bimg { height: 36px; display: flex; align-items: flex-end; justify-content: center; }
+.bico { max-height: 36px; max-width: 46px; image-rendering: pixelated; }
+.bslot .cost .ico { width: 10px; vertical-align: -1px; }
+#stats .skey { width: 12px; color: var(--muted); font-size: 12px; }
+.feed-item .ico { width: 12px; }
+
+/* class evolution */
+#evolve { position: absolute; top: 108px; left: 50%; transform: translateX(-50%); padding: 8px 10px 10px; width: min(760px, 92vw); text-align: center; }
+.evo-title { font-family: 'Press Start 2P', monospace; font-size: 11px; color: var(--gold); text-shadow: 2px 2px 0 var(--ink); margin: 2px 0 8px; }
+#evolve-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.evo { cursor: pointer; padding: 6px 8px 8px; background: var(--panel-lo); border: 3px solid var(--ink); box-shadow: inset 2px 2px 0 #3a3148; font-size: 13px; line-height: 1.2; }
+.evo:hover { border-color: var(--gold); background: #2e2618; }
+.evo-img { display: block; margin: 0 auto 4px; height: 60px; image-rendering: pixelated; }
+.evo b { display: block; font-size: 17px; margin-bottom: 3px; }
+.evo span { display: block; color: var(--muted); }
+.evo em { display: block; margin-top: 5px; color: #ffd98a; font-style: normal; }

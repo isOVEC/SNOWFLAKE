@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const game = new Game();
+const game = new Game({ bots: process.env.BOTS !== undefined ? +process.env.BOTS : 6 });
 let saved = null;
 try {
   saved = JSON.parse(fs.readFileSync(SAVE_FILE, 'utf8'));

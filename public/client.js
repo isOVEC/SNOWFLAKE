@@ -64,7 +64,7 @@ const keys = {};
 const mouse = { x: 0, y: 0, down: false, right: false, wx: 0, wy: 0 };
 
 // =================================================================== world data (local)
-const TN = S.W / S.TILE;
+const TN = Math.ceil(S.W / S.TILE);
 const biomeGrid = new Uint8Array(TN * TN);
 for (let ty = 0; ty < TN; ty++) for (let tx = 0; tx < TN; tx++) biomeGrid[ty * TN + tx] = S.biomeAt((tx + 0.5) * S.TILE, (ty + 0.5) * S.TILE);
 const biomeAtTile = (tx, ty) => biomeGrid[clamp(ty, 0, TN - 1) * TN + clamp(tx, 0, TN - 1)];
@@ -90,11 +90,11 @@ mmBg.width = mmBg.height = 200;
   const img = g.createImageData(200, 200);
   for (let y = 0; y < 200; y++) for (let x = 0; x < 200; x++) {
     const b = biomeAtPos((x + 0.5) * S.W / 200, (y + 0.5) * S.H / 200);
-    const c = S.BIOME_COLORS[b][0];
+    const c = PIX.GROUND[b][1];
     const i = (y * 200 + x) * 4;
-    img.data[i] = parseInt(c.slice(1, 3), 16) * 0.8;
-    img.data[i + 1] = parseInt(c.slice(3, 5), 16) * 0.8;
-    img.data[i + 2] = parseInt(c.slice(5, 7), 16) * 0.8;
+    img.data[i] = parseInt(c.slice(1, 3), 16) * 0.85;
+    img.data[i + 1] = parseInt(c.slice(3, 5), 16) * 0.85;
+    img.data[i + 2] = parseInt(c.slice(5, 7), 16) * 0.85;
     img.data[i + 3] = 255;
   }
   g.putImageData(img, 0, 0);
@@ -178,8 +178,9 @@ function onSnap(m) {
   // attack animations & hurt flashes
   for (const u of m.u) {
     const id = u[0];
-    const a = u[8];
-    if (lastAtkN[id] !== undefined && a !== lastAtkN[id] && u[1] !== 'B') atkAnim.set(id, now);
+    const a = u[1] === 'B' ? u[11] : u[8];
+    // bosses fire constantly: only restart their attack pose once the previous one finished
+    if (lastAtkN[id] !== undefined && a !== lastAtkN[id] && (u[1] !== 'B' || !atkAnim.has(id) || now - atkAnim.get(id) > 450)) atkAnim.set(id, now);
     lastAtkN[id] = a;
     const prev = lastHp.get(id);
     if (prev !== undefined && u[6] < prev) hurtFlash.set(id, now);
@@ -213,7 +214,8 @@ function onSnap(m) {
   }
 }
 
-function myRadius() { return pf ? S.CLASSES[pf.cls].r : 22; }
+function myType() { return pf ? pf.sub || pf.cls : 'warrior'; }
+function myRadius() { return S.heroDef(myType()).r; }
 function canPass(s) { return s.type === 'wall' && (s.rel === 0 || s.rel === 1); }
 function nearStatics(x, y, r) {
   const out = [];
@@ -227,7 +229,7 @@ function nearStatics(x, y, r) {
 function onEvent(e) {
   if (e.k === 'msg') toast(e.m);
   else if (e.k === 'res') {
-    if (e.v > 0) floatText(e.x, e.y, `+${e.v >= 10 ? Math.round(e.v) : e.v.toFixed(1)} ${S.RES_ICON[e.r]}`, e.r === 'gold' ? '#ffd76a' : e.r === 'wood' ? '#d7f59a' : '#e4e4e4', 1.1);
+    if (e.v > 0) floatText(e.x, e.y, `+${e.v >= 10 ? Math.round(e.v) : e.v.toFixed(1)}`, e.r === 'gold' ? '#ffd76a' : e.r === 'wood' ? '#d7f59a' : '#e4e4e4', 1.1, 16, e.r);
     else if (e.full) floatText(e.x, e.y, 'Склад полон!', '#ff9d7a', 1.2);
   }
 }
@@ -236,8 +238,8 @@ function onEvent(e) {
 const particles = [];
 const texts = [];
 const rings = [];
-function floatText(x, y, s, color, life, size) {
-  texts.push({ x: x + (Math.random() - 0.5) * 16, y, s, color, t: 0, life: life || 0.9, size: size || 16 });
+function floatText(x, y, s, color, life, size, icon) {
+  texts.push({ x: x + (Math.random() - 0.5) * 16, y, s, color, t: 0, life: life || 0.9, size: size || 16, icon });
   if (texts.length > 120) texts.shift();
 }
 function burst(x, y, n, colors, speed, life, size) {
@@ -262,8 +264,8 @@ function spawnFx(f) {
       break;
     }
     case 'boom':
-      rings.push({ x, y, r0: 10, r1: a, t: 0, life: 0.35, c: b ? '#c08cff' : '#ff9a3d', fill: true });
-      burst(x, y, 16, b ? ['#e2c8ff', '#9b5cff', '#ffffff'] : ['#ffd070', '#ff7a2d', '#ffec9a', '#ff4a1a'], 260, 0.45, 6);
+      rings.push({ x, y, r0: 10, r1: a, t: 0, life: 0.35, c: b === 1 ? '#c08cff' : b === 2 ? '#fff0a8' : '#ff9a3d', fill: true });
+      burst(x, y, 16, b === 1 ? ['#e2c8ff', '#9b5cff', '#ffffff'] : b === 2 ? ['#fff4b0', '#ffd84f', '#ffffff'] : ['#ffd070', '#ff7a2d', '#ffec9a', '#ff4a1a'], 260, 0.45, 6);
       break;
     case 'nova':
       rings.push({ x, y, r0: 20, r1: a, t: 0, life: 0.45, c: '#9ee8ff', fill: true });
@@ -274,6 +276,27 @@ function spawnFx(f) {
       burst(x, y, 24, ['#b09070', '#806040', '#d8c0a0'], 300, 0.5, 7);
       break;
     case 'dash': burst(x, y, 14, ['#ffffff', '#dfe8ff'], 180, 0.35, 5); break;
+    case 'bolt': {
+      const j = [];
+      for (let i = 0; i < 8; i++) j.push(Math.round((Math.random() - 0.5) * 6));
+      bolts.push({ x1: x, y1: y, x2: a, y2: b, j, t: 0, life: 0.22 });
+      burst(a, b, 6, ['#e6faff', '#78e0ff'], 160, 0.3, 4);
+      break;
+    }
+    case 'strike': {
+      const j = [];
+      for (let i = 0; i < 8; i++) j.push(Math.round((Math.random() - 0.5) * 5));
+      bolts.push({ x1: x + (Math.random() - 0.5) * 60, y1: y - 420, x2: x, y2: y, j, t: 0, life: 0.3 });
+      rings.push({ x, y, r0: 10, r1: a, t: 0, life: 0.3, c: '#78e0ff', fill: true });
+      burst(x, y, 12, ['#e6faff', '#78e0ff', '#ffffff'], 220, 0.4, 5);
+      break;
+    }
+    case 'shield': rings.push({ x, y, r0: 20, r1: a, t: 0, life: 0.45, c: '#ffd84f', fill: true }); burst(x, y, 20, ['#ffd84f', '#fff4b0'], 260, 0.5, 5); break;
+    case 'rage': rings.push({ x, y, r0: 10, r1: 90, t: 0, life: 0.5, c: '#ff4a2a' }); burst(x, y, 24, ['#ff4a2a', '#ffa24a', '#ffffff'], 260, 0.5, 6); break;
+    case 'whirl': rings.push({ x, y, r0: a * 0.6, r1: a, t: 0, life: 0.3, c: '#ffffff' }); break;
+    case 'howl': rings.push({ x, y, r0: 20, r1: a, t: 0, life: 0.6, c: '#c2c8d0' }); rings.push({ x, y, r0: 10, r1: a * 0.7, t: -0.1, life: 0.6, c: '#c2c8d0' }); break;
+    case 'roots': rings.push({ x, y, r0: 20, r1: a, t: 0, life: 0.6, c: '#66b84c', fill: true }); burst(x, y, 40, ['#66b84c', '#9ada74', '#9a6838'], 380, 0.6, 6); break;
+    case 'holy': rings.push({ x, y, r0: 20, r1: a, t: 0, life: 0.6, c: '#fff0a8', fill: true }); burst(x, y, 40, ['#fff4b0', '#ffd84f', '#ffffff'], 380, 0.7, 5); break;
     case 'blink': rings.push({ x, y, r0: 60, r1: 5, t: 0, life: 0.4, c: '#b48cff' }); burst(x, y, 20, ['#d8c0ff', '#8a5cff', '#fff'], 220, 0.5, 5); break;
     case 'lvl': rings.push({ x, y, r0: a, r1: a + 70, t: 0, life: 0.7, c: '#ffd76a' }); burst(x, y, 26, ['#ffe89a', '#ffd76a', '#fff'], 200, 0.8, 5); break;
     case 'build': rings.push({ x, y, r0: a * 0.3, r1: a * 0.9, t: 0, life: 0.45, c: '#fff2c8' }); burst(x, y, 18, ['#c8b08a', '#8a7050', '#fff'], 200, 0.5, 6); break;
@@ -298,12 +321,19 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Enter') { $('chatin').focus(); e.preventDefault(); return; }
   keys[e.code] = true;
-  if (e.code.startsWith('Digit')) {
-    const i = +e.code.slice(5) - 1;
+  // F1..F10 pick a building, 1..6 spend skill points (like diep.io)
+  const fk = /^F(\d+)$/.exec(e.code);
+  if (fk) {
+    e.preventDefault();
+    const i = +fk[1] - 1;
     if (i >= 0 && i < S.BUILD_ORDER.length) selectBuild(S.BUILD_ORDER[i]);
   }
+  if (e.code.startsWith('Digit')) {
+    const i = +e.code.slice(5) - 1;
+    if (i >= 0 && i < S.STATS.length) send({ t: 'stat', i });
+  }
   if (e.code === 'Escape') { buildMode = null; closeHelp(); renderBuildBar(); }
-  if (e.code === 'KeyH' || e.code === 'F1') { e.preventDefault(); toggleHelp(); }
+  if (e.code === 'KeyH') { e.preventDefault(); toggleHelp(); }
   if (e.code === 'KeyE' && hovered && hovered.k === 'b' && hovered.rel === 0) send({ t: 'up', id: hovered.id });
   if (e.code === 'KeyX' && hovered && hovered.k === 'b' && hovered.rel === 0 && hovered.type !== 'townhall') {
     if (demolishArm && performance.now() - demolishArm < 1500) { send({ t: 'del', id: hovered.id }); demolishArm = 0; }
@@ -461,29 +491,41 @@ function drawNode(s) {
 }
 
 function buildingTop(s) { return s.y + s.hs - PIX.building(s.type, s.rel).ay * ART; }
+function flame(x, y, t, seed, big) {
+  const f = Math.floor(t * 10 + seed) % 3;
+  g.globalAlpha = 0.22; pdisc(x, y, (big ? 6 : 4) + (f === 1 ? 1 : 0), '#ffb040'); g.globalAlpha = 1;
+  g.fillStyle = '#ff7a2d'; g.fillRect(x - 1, y - (f === 2 ? 1 : 0), 2, 2);
+  g.fillStyle = '#ffe07a'; g.fillRect(x, y - 1 - (f % 2), 1, 1);
+}
 function drawBuilding(s, t, alpha) {
   const sp = PIX.building(s.type, s.rel);
   const x = A(s.x), y = A(s.y + s.hs);
   const hsA = Math.round(s.hs / ART);
-  g.globalAlpha = 0.25 * (alpha === undefined ? 1 : alpha);
-  g.fillStyle = '#000'; g.fillRect(x - hsA + 2, y - 1, hsA * 2 + 1, 3);
+  g.globalAlpha = 0.2 * (alpha === undefined ? 1 : alpha);
+  pell(x + 2, y, hsA + 2, 3, '#000');
   g.globalAlpha = 1;
   spr(sp, x, y, alpha);
-  const top = y - sp.ay;
+  const ox = x - sp.ax, oy = y - sp.ay;
+  const top = oy;
+  if (alpha === undefined) {
+    for (const [lx, ly] of sp.lights) flame(ox + lx, oy + ly, t, lx * 7 + s.id, s.type === 'warcamp');
+    if (sp.smoke && Math.random() < 0.06) {
+      particles.push({ x: (ox + sp.smoke[0]) * ART, y: (oy + sp.smoke[1]) * ART, vx: 6 + Math.random() * 8, vy: -25 - Math.random() * 10, t: 0, life: 1.8, c: Math.random() < 0.5 ? '#d8d2c8' : '#b8b0a4', s: 6, smoke: true });
+    }
+  }
   if (s.type === 'magetower') {
-    const oy = top - 3 + Math.round(Math.sin(t * 3 + s.x) * 1.5);
-    g.globalAlpha = 0.3; pdisc(x, oy, 5, '#9b5cff'); g.globalAlpha = 1;
-    pdisc(x, oy, 2.5, '#c8a0ff'); pdisc(x, oy, 1, '#ffffff');
+    const oyb = top - 2 + Math.round(Math.sin(t * 3 + s.x) * 1.5);
+    g.globalAlpha = 0.3; pdisc(x, oyb, 5, '#9b5cff'); g.globalAlpha = 1;
+    pdisc(x, oyb, 2.5, '#c8a0ff'); pdisc(x, oyb, 1, '#ffffff');
   } else if (s.type === 'shrine') {
     const pulse = (Math.sin(t * 2.5) + 1) / 2;
     if (alpha === undefined) pring(x, A(s.y), Math.round(S.BUILDINGS.shrine.range / ART), s.rel <= 1 ? 'rgba(125,255,176,0.35)' : 'rgba(255,140,140,0.35)', 3);
-    g.fillStyle = `rgba(190,255,215,${0.5 + pulse * 0.5})`;
+    g.globalAlpha = 0.15 + pulse * 0.15; pdisc(x, top + 12, 6, '#7dffb0'); g.globalAlpha = 1;
+    g.fillStyle = `rgba(210,255,225,${0.5 + pulse * 0.5})`;
     for (let i = 0; i < 4; i++) {
       const a = t * 1.5 + (i / 4) * TAU;
-      g.fillRect(x + Math.round(Math.cos(a) * 6), top + 8 + Math.round(Math.sin(a) * 3), 1, 1);
+      g.fillRect(x + Math.round(Math.cos(a) * 7), top + 12 + Math.round(Math.sin(a) * 3), 1, 1);
     }
-  } else if (s.type === 'sawmill' && Math.floor(t * 6) % 2) {
-    g.fillStyle = '#e8ecf2'; g.fillRect(x - Math.round(sp.w / 2) + 11, top + 10, 1, 1);
   }
   if (s.type !== 'wall' && alpha === undefined) {
     const st = PIX.star();
@@ -492,53 +534,88 @@ function drawBuilding(s, t, alpha) {
   if (s.hp < 100) bar(x, top - 3, clamp(hsA * 2, 10, 30), s.hp, s.rel === 2 ? '#e8514a' : s.rel === 1 ? '#45c46a' : '#3d9df3');
 }
 
-function drawWeapon(cls, x, y, aim, anim, left) {
+const WEAPON_OF = {
+  warrior: 'warrior', cavalier: 'lance', guardian: 'warrior', berserker: 'axe',
+  ranger: 'ranger', sniper: 'crossbow', beastmaster: 'ranger', shadow: 'dagger',
+  mage: 'mage', storm: 'stormstaff', druid: 'druidstaff', holy: 'holystaff',
+};
+function swingTrail(x, y, from, to, r, alpha) {
+  g.fillStyle = `rgba(255,255,255,${alpha})`;
+  for (let k = 0; k <= 12; k++) {
+    const ang = lerp(from, to, k / 12);
+    g.fillRect(Math.round(x + Math.cos(ang) * r), Math.round(y + Math.sin(ang) * r), 1, 1);
+    g.fillRect(Math.round(x + Math.cos(ang) * (r - 1)), Math.round(y + Math.sin(ang) * (r - 1)), 1, 1);
+  }
+}
+function drawWeapon(type, x, y, aim, anim, left, rel) {
   const dir = left ? -1 : 1;
-  if (cls === 'warrior') {
+  const base = S.heroDef(type).base;
+  const w = PIX.weapon(WEAPON_OF[type] || 'warrior');
+  if (type === 'cavalier') {
+    // couched lance: thrusts forward instead of swinging
+    const push = anim < 0.5 ? Math.round(Math.sin((anim / 0.5) * Math.PI) * 6) : 0;
+    sprRot(w, x + Math.round(Math.cos(aim) * push), y - 2 + Math.round(Math.sin(aim) * push), aim);
+  } else if (base === 'warrior') {
     let a = aim + 0.7 * dir;
     if (anim < 1) {
       const e = 1 - Math.pow(1 - anim, 3);
       a = aim - 1.5 * dir + 3 * dir * e;
-      if (anim < 0.5) {
-        g.fillStyle = `rgba(255,255,255,${0.8 * (1 - anim * 2)})`;
-        for (let k = 0; k <= 12; k++) {
-          const ang = lerp(aim - 1.5 * dir, a, k / 12);
-          g.fillRect(Math.round(x + Math.cos(ang) * 13), Math.round(y + Math.sin(ang) * 13), 1, 1);
-          g.fillRect(Math.round(x + Math.cos(ang) * 12), Math.round(y + Math.sin(ang) * 12), 1, 1);
-        }
+      if (anim < 0.5) swingTrail(x, y, aim - 1.5 * dir, a, type === 'berserker' ? 14 : 13, 0.8 * (1 - anim * 2));
+    }
+    sprRot(w, x, y, a);
+    if (type === 'guardian') spr(left ? PIX.flip(PIX.shieldSprite(rel)) : PIX.shieldSprite(rel), x + 3 * dir, y + 3);
+  } else if (base === 'ranger') {
+    if (type === 'shadow') {
+      sprRot(w, x, y, aim + (anim < 0.3 ? -0.8 * dir : 0.3 * dir));
+      sprRot(w, x - 4 * dir, y + 2, aim - 0.4 * dir);
+    } else {
+      sprRot(w, x + Math.round(Math.cos(aim) * 2), y + Math.round(Math.sin(aim) * 2), aim);
+      if (type !== 'sniper' && anim > 0.6) {
+        g.fillStyle = '#d8c090';
+        for (let k = 0; k < 7; k++) g.fillRect(Math.round(x + Math.cos(aim) * (k - 2)), Math.round(y + Math.sin(aim) * (k - 2)), 1, 1);
       }
     }
-    sprRot(PIX.weapon('warrior'), x, y, a);
-  } else if (cls === 'ranger') {
-    sprRot(PIX.weapon('ranger'), x + Math.round(Math.cos(aim) * 2), y + Math.round(Math.sin(aim) * 2), aim);
-    if (anim > 0.6) {
-      g.fillStyle = '#d8c090';
-      for (let k = 0; k < 7; k++) g.fillRect(Math.round(x + Math.cos(aim) * (k - 2)), Math.round(y + Math.sin(aim) * (k - 2)), 1, 1);
-    }
   } else {
-    sprRot(PIX.weapon('mage'), x, y + 1, aim);
+    sprRot(w, x, y + 1, aim);
     if (anim < 1) {
       const tx = Math.round(x + Math.cos(aim) * 12), ty = Math.round(y + 1 + Math.sin(aim) * 12);
-      g.globalAlpha = (1 - anim) * 0.6; pdisc(tx, ty, 3 + (1 - anim) * 2, '#ffb040'); g.globalAlpha = 1;
+      const col = { storm: '#78e0ff', druid: '#8cff7a', holy: '#fff0a8' }[type] || '#ffb040';
+      g.globalAlpha = (1 - anim) * 0.6; pdisc(tx, ty, 3 + (1 - anim) * 2, col); g.globalAlpha = 1;
     }
   }
 }
 
-function drawHero(wx, wy, cls, aim, rel, anim, flags, t, flash, moving) {
-  const x = A(wx), y = A(wy) + 6;
+function drawHero(wx, wy, type, aim, rel, anim, flags, t, flash, moving) {
+  const def = S.heroDef(type);
+  const x = A(wx), y = A(wy) + Math.round(def.r / ART * 0.8) + (type === 'cavalier' ? 0 : -1) + 1;
   const left = Math.cos(aim) < 0;
-  const frame = moving ? Math.floor(t * 9) % 2 : 0;
+  const frame = moving ? Math.floor(t * (type === 'cavalier' ? 12 : 9)) % 2 : 0;
   const bob = moving && frame ? 1 : 0;
-  shadow(x, y, 5);
+  if (flags.stealth) g.globalAlpha = 0.35;
+  shadow(x, y, type === 'cavalier' ? 8 : 5);
+  if (flags.tier === 2) {
+    // empowered heroes get a soft rotating aura
+    const col = { warrior: '#ffd84f', ranger: '#9cf0b8', mage: '#c8a0ff' }[def.base];
+    g.fillStyle = col;
+    for (let i = 0; i < 6; i++) {
+      const a = t * 2 + (i / 6) * TAU;
+      g.fillRect(x + Math.round(Math.cos(a) * 9), y - 1 + Math.round(Math.sin(a) * 3), 1, 1);
+    }
+  }
   if (flags.recall) pring(x, y - 7, 11 + Math.round(Math.sin(t * 6) * 2), '#9fd4ff', 2);
-  let body = PIX.hero(cls, rel, frame);
+  if (flags.rage) { g.globalAlpha = 0.25; pdisc(x, y - 7, 9, '#ff3a1a'); g.globalAlpha = flags.stealth ? 0.35 : 1; }
+  let body = PIX.hero(type, rel, frame);
   if (left) body = PIX.flip(body);
-  const hx = x + (left ? -3 : 3), hy = y - 7 - bob;
+  const hx = x + (left ? -3 : 3), hy = y - (type === 'cavalier' ? 12 : 7) - bob;
   const behind = Math.sin(aim) < -0.35;
-  if (behind) drawWeapon(cls, hx, hy, aim, anim, left);
-  spr(body, x, y - bob, flags.invuln && Math.floor(t * 10) % 2 ? 0.5 : undefined);
+  if (behind) drawWeapon(type, hx, hy, aim, anim, left, rel);
+  spr(body, x, y - bob, flags.stealth ? 0.35 : flags.invuln && Math.floor(t * 10) % 2 ? 0.5 : undefined);
+  if (flags.rage) spr(PIX.tint(body, '#ff4a2a'), x, y - bob, 0.25);
   if (flash > 0) spr(PIX.tint(body, '#ffffff'), x, y - bob, flash);
-  if (!behind) drawWeapon(cls, hx, hy, aim, anim, left);
+  if (!behind) drawWeapon(type, hx, hy, aim, anim, left, rel);
+  if (flags.stealth) g.globalAlpha = 1;
+  if (flags.bastion) pring(x, y - 7, 12, '#ffd84f');
+  if (flags.shield) { g.globalAlpha = 0.5 + Math.sin(t * 8) * 0.2; pring(x, y - 7, 11, '#fff0a8'); pring(x, y - 7, 10, '#fff0a8'); g.globalAlpha = 1; }
   if (flags.slow) {
     g.fillStyle = '#8fdcff';
     for (let i = 0; i < 4; i++) g.fillRect(x - 6 + i * 4, y - 1 - (Math.floor(t * 10 + i) % 3), 1, 1);
@@ -560,29 +637,34 @@ function drawMob(wx, wy, type, aim, anim, t, flash, id, moving) {
   if (flash > 0) spr(PIX.tint(s, '#ffffff'), lx, ly, flash * 0.8);
 }
 
-function drawKnight(wx, wy, aim, rel, anim, flash, t, moving) {
-  const x = A(wx), y = A(wy) + 5;
+function drawAlly(wx, wy, type, aim, rel, anim, flash, t, moving) {
+  const def = S.ALLY_UNITS[type] || S.KNIGHT;
+  const x = A(wx), y = A(wy) + Math.round((def.r / ART) * 0.8);
   const left = Math.cos(aim) < 0;
   const frame = moving ? Math.floor(t * 9) % 2 : 0;
-  let s = PIX.knight(rel, frame);
+  let s = PIX.ally(type, rel, frame);
   if (left) s = PIX.flip(s);
-  shadow(x, y, 5);
-  spr(s, x, y);
-  if (flash > 0) spr(PIX.tint(s, '#ffffff'), x, y, flash * 0.8);
-  const dir = left ? -1 : 1;
-  const a = anim < 0.4 ? aim - dir + 2 * dir * (anim / 0.4) : aim + 0.8 * dir;
-  sprRot(PIX.weapon('knight'), x + 3 * dir, y - 6, a);
+  const lunge = (type === 'wolf' || type === 'ent') && anim < 0.3 ? Math.round(Math.sin((anim / 0.3) * Math.PI) * 3) : 0;
+  const lx = x + Math.round(Math.cos(aim) * lunge), ly = y + Math.round(Math.sin(aim) * lunge);
+  shadow(x, y, Math.round(def.r / ART));
+  spr(s, lx, ly);
+  if (flash > 0) spr(PIX.tint(s, '#ffffff'), lx, ly, flash * 0.8);
+  if (type === 'knight' || type === 'merc') {
+    const dir = left ? -1 : 1;
+    const a = anim < 0.4 ? aim - dir + 2 * dir * (anim / 0.4) : aim + 0.8 * dir;
+    sprRot(PIX.weapon(type === 'merc' ? 'merc' : 'knight'), x + 3 * dir, y - 6, a);
+  }
 }
 
-function drawBoss(wx, wy, key, aim, enraged, t, flash) {
+function drawBoss(wx, wy, key, aim, enraged, t, flash, atkT, moving) {
   const def = S.BOSSES.find((b) => b.key === key);
   const x = A(wx);
   let y = A(wy) + Math.round((def.r / ART) * 0.7);
   const left = Math.cos(aim) < 0;
-  let s = PIX.boss(key, Math.floor(t * 5) % 4);
+  let s = atkT < 450 ? PIX.boss(key, 'atk', Math.min(2, Math.floor(atkT / 150))) : PIX.boss(key, 'move', Math.floor(t * (moving ? 9 : 5)) % 6);
   if (left) s = PIX.flip(s);
   shadow(x, y, Math.round(def.r / ART));
-  if (key === 'lich') y -= 4 + Math.round(Math.sin(t * 2) * 2);
+  if (key === 'lich') y -= 4;
   if (enraged) { g.globalAlpha = 0.18 + 0.08 * Math.sin(t * 8); pdisc(x, y - (s.ay >> 1), (def.r / ART) * 1.3, '#ff3a1a'); g.globalAlpha = 1; }
   spr(s, x, y);
   if (enraged) spr(PIX.tint(s, '#ff3a1a'), x, y, 0.15 + 0.1 * Math.sin(t * 8));
@@ -590,7 +672,7 @@ function drawBoss(wx, wy, key, aim, enraged, t, flash) {
   if (key === 'lich') {
     for (let i = 0; i < 4; i++) {
       const a = t * 1.5 + (i / 4) * TAU;
-      const ox = x + Math.round(Math.cos(a) * 24), oy = y - 24 + Math.round(Math.sin(a) * 9);
+      const ox = x + Math.round(Math.cos(a) * 26), oy = y - 28 + Math.round(Math.sin(a) * 9);
       g.globalAlpha = 0.35; pdisc(ox, oy, 3.5, '#3aa8ff'); g.globalAlpha = 1;
       pdisc(ox, oy, 1.5, '#c8f4ff');
     }
@@ -602,6 +684,7 @@ const ORB = {
   magic: ['#4a2a90', '#9b5cff', '#d8b8ff', '#ffffff'],
   bolt: ['#1a4a8a', '#3aa8ff', '#c8f4ff', '#ffffff'],
   poison: ['#2a5a10', '#6ab82a', '#c8f07a', '#ffffff'],
+  holy: ['#c0901a', '#ffd84f', '#fff4b0', '#ffffff'],
 };
 function orb(x, y, r, pal) {
   g.globalAlpha = 0.35; pdisc(x, y, r + 1.5, pal[0]); g.globalAlpha = 1;
@@ -614,6 +697,17 @@ function drawProj(p, t) {
   const x = A(p.x), y = A(p.y);
   switch (type) {
     case 'arrow': case 'tarrow': case 'gob': sprRot(PIX.arrow(mine ? 1 : 0), x, y, p.a); break;
+    case 'bolt_x': sprRot(PIX.boltProj(false), x, y, p.a); break;
+    case 'bigbolt':
+      sprRot(PIX.boltProj(true), x, y, p.a);
+      if (Math.random() < 0.6) particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, t: 0, life: 0.3, c: '#fff4b0', s: 3 });
+      break;
+    case 'dagger': sprRot(PIX.daggerProj(), x, y, t * 20); break;
+    case 'thorn': sprRot(PIX.thornProj(), x, y, p.a); break;
+    case 'holy':
+      orb(x, y, 3, ORB.holy);
+      if (Math.random() < 0.4) particles.push({ x: p.x, y: p.y, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, t: 0, life: 0.4, c: '#fff4b0', s: 3 });
+      break;
     case 'fire': case 'imp': case 'fireball': case 'flame': {
       const r = type === 'fireball' ? 5 : type === 'imp' ? 2 : type === 'flame' ? 3 + (Math.floor(t * 20 + x) % 2) : 3;
       orb(x, y, r, ORB.fire);
@@ -627,6 +721,31 @@ function drawProj(p, t) {
     case 'shock': sprRot(PIX.rockProj(false), x, y, t * 8); break;
     case 'rock': sprRot(PIX.rockProj(true), x, y, t * 5); break;
     default: g.fillStyle = '#fff'; g.fillRect(x, y, 2, 2);
+  }
+}
+
+// jagged pixel lightning between two world points
+const bolts = [];
+function drawBolts(dt) {
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const b = bolts[i];
+    b.t += dt;
+    if (b.t > b.life) { bolts.splice(i, 1); continue; }
+    g.globalAlpha = 1 - b.t / b.life;
+    for (const [col, off] of [['#3aa8ff', 1], ['#e6faff', 0]]) {
+      g.fillStyle = col;
+      let px = A(b.x1), py = A(b.y1);
+      const tx = A(b.x2), ty = A(b.y2);
+      const n = Math.max(3, Math.round(Math.hypot(tx - px, ty - py) / 5));
+      for (let k = 1; k <= n; k++) {
+        const nx = Math.round(lerp(A(b.x1), tx, k / n) + (k < n ? b.j[k % b.j.length] : 0));
+        const ny = Math.round(lerp(A(b.y1), ty, k / n) + (k < n ? b.j[(k + 3) % b.j.length] : 0));
+        const m = Math.max(Math.abs(nx - px), Math.abs(ny - py), 1);
+        for (let s = 0; s <= m; s++) g.fillRect(Math.round(lerp(px, nx, s / m)) - off, Math.round(lerp(py, ny, s / m)) - off, 1 + off * 2, 1 + off * 2);
+        px = nx; py = ny;
+      }
+    }
+    g.globalAlpha = 1;
   }
 }
 
@@ -769,10 +888,11 @@ function frame(now) {
     if (d.self) {
       const anim = atkAnim.has(myId) ? (now - atkAnim.get(myId)) / (pf.cls === 'warrior' ? 280 : 350) : 9;
       const myRow = world && findMyRow(world);
-      const flags = { invuln: myRow && myRow[9], slow: myRow && myRow[10], recall: me.rc > 0 };
+      const flags = heroFlags(myRow);
+      flags.recall = me.rc > 0;
       const fl = hurtFlash.has(myId) ? Math.max(0, 1 - (now - hurtFlash.get(myId)) / 150) : 0;
       const moving = !!(lastInput && (lastInput.mx || lastInput.my));
-      drawHero(cam.x, cam.y, pf.cls, myAim, 0, anim, flags, t, fl, moving);
+      drawHero(cam.x, cam.y, myType(), myAim, 0, anim, flags, t, fl, moving);
       bar(A(cam.x), A(cam.y) + 9, 14, Math.round((me.hp / me.mhp) * 100), '#5fd16f');
       names.push({ x: cam.x, y: cam.y - 52, rel: 0, id: myId });
       continue;
@@ -782,17 +902,17 @@ function frame(now) {
     const anim = atkAnim.has(id) ? (now - atkAnim.get(id)) / 300 : 9;
     const fl = hurtFlash.has(id) ? Math.max(0, 1 - (now - hurtFlash.get(id)) / 150) : 0;
     if (row[1] === 'h') {
-      drawHero(u.x, u.y, row[2], u.aim, row[7], anim, { invuln: row[9], slow: row[10], recall: row[11] }, t, fl, u.mv);
+      drawHero(u.x, u.y, row[2], u.aim, row[7], anim, heroFlags(row), t, fl, u.mv);
       bar(A(u.x), A(u.y) + 9, 14, row[6], row[7] === 2 ? '#e8514a' : '#5fd16f');
       names.push({ x: u.x, y: u.y - 52, rel: row[7], id });
     } else if (row[1] === 'm') {
       drawMob(u.x, u.y, row[2], u.aim, anim, t, fl, id, u.mv);
       if (row[6] < 100) bar(A(u.x), A(u.y) + Math.round(S.MOBS[row[2]].r / ART) + 3, 10, row[6], '#e0a040');
     } else if (row[1] === 'k') {
-      drawKnight(u.x, u.y, u.aim, row[7], anim, fl, t, u.mv);
+      drawAlly(u.x, u.y, row[2], u.aim, row[7], anim, fl, t, u.mv);
       if (row[6] < 100) bar(A(u.x), A(u.y) + 8, 10, row[6], row[7] === 2 ? '#e8514a' : '#5fd16f');
     } else if (row[1] === 'B') {
-      drawBoss(u.x, u.y, row[2], u.aim, row[8], t, fl);
+      drawBoss(u.x, u.y, row[2], u.aim, row[8], t, fl, atkAnim.has(id) ? now - atkAnim.get(id) : 1e9, u.mv);
     }
   }
   if (world) for (const p of world.projs) drawProj(p, t);
@@ -815,12 +935,14 @@ function frame(now) {
     if (r.fill && k < 0.5) { g.globalAlpha = (0.5 - k) * 0.4; pdisc(A(r.x), A(r.y), rad, r.c); }
     g.globalAlpha = 1;
   }
+  drawBolts(dt);
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.t += dt;
     if (p.t > p.life) { particles.splice(i, 1); continue; }
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92;
-    g.globalAlpha = Math.min(1, 2 * (1 - p.t / p.life));
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (!p.smoke) { p.vx *= 0.92; p.vy *= 0.92; }
+    g.globalAlpha = Math.min(1, 2 * (1 - p.t / p.life)) * (p.smoke ? 0.6 : 1);
     g.fillStyle = p.c;
     const s = p.s > 5 ? 2 : 1;
     g.fillRect(A(p.x), A(p.y), s, s);
@@ -840,10 +962,11 @@ function frame(now) {
     const col = n.rel === 0 ? '#8fd0ff' : n.rel === 1 ? '#8ff0a8' : '#ff9a90';
     const sx = scrX(n.x), sy = scrY(n.y);
     const txt = `${nm[1] ? `[${nm[1]}] ` : ''}${nm[0]}`;
-    label(txt, sx, sy, 16, col);
     ctx.font = '16px Tiny5, monospace';
-    const w = ctx.measureText(txt).width;
-    label(String(nm[2]), sx - w / 2 - 10, sy, 16, '#ffd76a');
+    const lv = String(nm[2]);
+    const w = ctx.measureText(txt).width, lw = ctx.measureText(lv).width + 6;
+    label(txt, sx + lw / 2, sy, 16, col);
+    label(lv, sx - w / 2, sy, 16, '#ffd76a');
     if (bubbles.has(n.id)) {
       const b = bubbles.get(n.id);
       if (now - b.t > 5000) bubbles.delete(n.id);
@@ -856,7 +979,13 @@ function frame(now) {
     if (f.t > f.life) { texts.splice(i, 1); continue; }
     const k = f.t / f.life;
     ctx.globalAlpha = k > 0.6 ? (1 - k) / 0.4 : 1;
-    label(f.s, scrX(f.x), scrY(f.y) - Math.round(k * 12) * 3, f.size, f.color);
+    const fy = scrY(f.y) - Math.round(k * 12) * 3;
+    label(f.s, scrX(f.x), fy, f.size, f.color);
+    if (f.icon) {
+      ctx.font = `${f.size}px Tiny5, monospace`;
+      const im = iconImg(f.icon);
+      if (im.complete) ctx.drawImage(im, Math.round(scrX(f.x) + ctx.measureText(f.s).width / 2 + 3), Math.round(fy - 13), im.width, im.height);
+    }
   }
   ctx.globalAlpha = 1;
   if (ghostErr) label(ghostErr.m, scrX(ghostErr.x), scrY(ghostErr.y), 16, '#ffb0a0');
@@ -874,6 +1003,11 @@ function frame(now) {
   }
 }
 let lastHud = 0;
+function heroFlags(row) {
+  if (!row) return {};
+  const f = row[14] || 0;
+  return { invuln: row[9], slow: row[10], recall: row[11], tier: row[13], stealth: f & 1, bastion: f & 2, shield: f & 4, rage: f & 8 };
+}
 function findMyRow(world) {
   for (const u of world.units) if (u.row[0] === myId && u.row[1] === 'h') return u.row;
   return null;
@@ -944,10 +1078,12 @@ function drawMinimap() {
   mm.drawImage(mmBg, 0, 0);
   // lairs
   for (const b of info.bosses || []) {
-    const def = S.BOSSES.find((d) => d.key === b[0]);
-    mm.font = '13px serif'; mm.textAlign = 'center'; mm.textBaseline = 'middle';
+    const def = S.BOSSES[b[0]];
+    if (!def) continue;
+    const im = iconImg(def.key === 'dragon' ? 'dragon' : 'skull');
     mm.globalAlpha = b[1] ? 1 : 0.35;
-    mm.fillText(b[0] === 'dragon' ? '🐉' : '💀', def.x * k, def.y * k);
+    mm.imageSmoothingEnabled = false;
+    if (im.complete) mm.drawImage(im, Math.round(def.x * k - im.width / 2), Math.round(def.y * k - im.height / 2));
     mm.globalAlpha = 1;
   }
   for (const th of info.ths || []) {
@@ -970,10 +1106,25 @@ function drawMinimap() {
 // =================================================================== HUD (DOM)
 function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const imgCache = new Map();
+function iconImg(name) {
+  let im = imgCache.get(name);
+  if (!im) { im = new Image(); im.src = PIX.iconURL(name, 2); imgCache.set(name, im); }
+  return im;
+}
+function ico(name, cls) { return `<img class="${cls || 'ico'}" src="${PIX.iconURL(name, 2)}" alt="">`; }
+function bldIco(type) { return `<img class="bico" src="${PIX.buildingURL(type)}" alt="">`; }
 function costStr(cost) {
   const parts = [];
-  for (const k of S.RES) if (cost[k]) parts.push(`${cost[k]}${S.RES_ICON[k]}`);
+  for (const k of S.RES) if (cost[k]) parts.push(`${cost[k]}${ico(k)}`);
   return parts.join(' ') || 'бесплатно';
+}
+// server messages still use emoji; swap them for pixel icons
+const EMOJI_ICONS = { '🪵': 'wood', '🪨': 'stone', '🪙': 'gold', '⚔': 'swords', '☠': 'skull', '🔥': 'fire', '👁': 'eye', '✦': 'glory' };
+function richText(m) {
+  let out = esc(m);
+  for (const [e, n] of Object.entries(EMOJI_ICONS)) out = out.split(e).join(ico(n));
+  return out.replace(/\uFE0F/g, '');
 }
 
 // build bar
@@ -984,7 +1135,7 @@ function renderBuildBar() {
       const d = S.BUILDINGS[type];
       const b = el('div', 'bslot');
       b.dataset.type = type;
-      b.innerHTML = `<span class="k">${i + 1}</span><span class="c"></span>${d.icon}<span class="cost"></span>`;
+      b.innerHTML = `<span class="k">F${i + 1}</span><span class="c"></span><span class="bimg">${bldIco(type)}</span><span class="cost"></span>`;
       b.onclick = () => selectBuild(type);
       b.onmouseenter = () => { buildHover = type; };
       b.onmouseleave = () => { buildHover = null; };
@@ -1011,7 +1162,9 @@ function renderBuildBar() {
     ok = ok && S.canAfford(resObj(), cost);
     b.classList.toggle('no', !ok);
     b.querySelector('.c').textContent = cnt;
-    b.querySelector('.cost').textContent = type === 'townhall' && pf.th ? 'построена' : costStr(cost);
+    const ch = type === 'townhall' && pf.th ? 'построена' : costStr(cost);
+    const cel = b.querySelector('.cost');
+    if (cel.dataset.v !== ch) { cel.dataset.v = ch; cel.innerHTML = ch; }
   }
 }
 let buildHover = null;
@@ -1027,6 +1180,7 @@ function renderStats() {
   box.appendChild(el('div', 'pts', pf.pts > 0 ? `Очки навыков: ${pf.pts}` : `Навыки · ${pf.st.reduce((a, b) => a + b, 0)}`));
   S.STATS.forEach((s, i) => {
     const row = el('div', 'srow');
+    row.appendChild(el('span', 'skey', String(i + 1)));
     row.appendChild(el('span', 'sname', s.name));
     const bar = el('div', 'sbar');
     for (let j = 0; j < S.STAT_MAX; j++) { const c = el('i'); if (j < pf.st[i]) c.style.background = s.color; bar.appendChild(c); }
@@ -1042,28 +1196,49 @@ function renderStats() {
 function updateHud() {
   if (!pf) return;
   const cap = pf.cap;
-  $('res').innerHTML = S.RES.map((r, i) => `<div class="r ${pf.res[i] >= cap ? 'full' : ''}">${S.RES_ICON[r]} ${pf.res[i]}</div>`).join('') +
-    `<div class="cap">склад ${cap}</div><div class="r glory">✦ ${pf.glory}</div>`;
+  const resHtml = S.RES.map((r, i) => `<div class="r ${pf.res[i] >= cap ? 'full' : ''}">${ico(r, 'rico')} ${pf.res[i]}</div>`).join('') +
+    `<div class="cap">склад ${cap}</div><div class="r glory">${ico('glory', 'rico')} ${pf.glory}</div>`;
+  if ($('res').dataset.v !== resHtml) { $('res').dataset.v = resHtml; $('res').innerHTML = resHtml; }
   const xpPct = pf.lvl >= S.MAX_LVL ? 100 : (pf.xp / pf.xpn) * 100;
   $('xpfill').style.width = xpPct + '%';
-  $('xptext').textContent = `Ур. ${pf.lvl} · ${S.CLASSES[pf.cls].name}` + (pf.lvl < S.MAX_LVL ? ` · ${pf.xp}/${pf.xpn}` : ' · МАКС');
+  $('xptext').textContent = `Ур. ${pf.lvl} · ${S.heroDef(myType()).name}` + (pf.lvl < S.MAX_LVL ? ` · ${pf.xp}/${pf.xpn}` : ' · МАКС');
+  updateEvolve();
   renderStats();
   renderBuildBar();
   if (me) {
     const k = me.cd / me.cdm;
     $('ability').querySelector('.ab-cd').style.background = k > 0 ? `linear-gradient(to top, transparent ${(1 - k) * 100}%, rgba(10,6,14,0.7) 0)` : 'transparent';
     $('ability').style.borderColor = k > 0 ? '#1b1420' : '#ffd34a';
-    $('ability').title = `${S.CLASSES[pf.cls].ability.name} (Пробел / ПКМ)`;
+    $('ability').title = `${S.heroDef(myType()).ability.name} (Пробел / ПКМ)`;
   }
-  const icon = { warrior: '💨', ranger: '🏹', mage: '❄️' }[pf.cls];
-  if ($('ability').dataset.cls !== pf.cls) {
-    $('ability').dataset.cls = pf.cls;
-    $('ability').innerHTML = `<div class="ab-cd"></div>${icon}<span class="ab-key">␣</span>`;
+  if ($('ability').dataset.cls !== myType()) {
+    $('ability').dataset.cls = myType();
+    $('ability').innerHTML = `${ico(S.heroDef(myType()).icon, 'abico')}<div class="ab-cd"></div><span class="ab-key">␣</span>`;
   }
+  if (!$('recall').dataset.v) { $('recall').dataset.v = 1; $('recall').innerHTML = `${ico('home', 'abico')}<span class="ab-key">R</span>`; }
   $('recall').style.opacity = pf.th ? 1 : 0.35;
   $('biome').textContent = S.BIOME_NAMES[biomeAtPos(cam.x, cam.y)];
 }
 $('recall').onclick = () => send({ t: 'recall' });
+
+// class evolution at level 10
+function updateEvolve() {
+  const box = $('evolve');
+  const show = pf && pf.lvl >= S.EVOLVE_LVL && !pf.sub && !dead;
+  box.classList.toggle('hidden', !show);
+  if (!show) { box.dataset.cls = ''; return; }
+  if (box.dataset.cls === pf.cls) return;
+  box.dataset.cls = pf.cls;
+  const cards = $('evolve-cards');
+  cards.innerHTML = '';
+  for (const [key, d] of Object.entries(S.SUBCLASSES)) {
+    if (d.base !== pf.cls) continue;
+    const c = el('div', 'evo');
+    c.innerHTML = `<img class="evo-img" src="${PIX.heroURL(key, 3)}" alt=""><b>${d.name}</b><span>${d.desc}</span><em>${ico('glory')} 20 ур.: ${d.desc20}</em>`;
+    c.onclick = () => send({ t: 'evolve', sub: key });
+    cards.appendChild(c);
+  }
+}
 
 function renderLeaderboard() {
   const list = $('lb-list');
@@ -1073,7 +1248,7 @@ function renderLeaderboard() {
     row.innerHTML = `<span>${i + 1}.</span><span class="n">${r[1] ? `[${esc(r[1])}] ` : ''}${esc(r[0])} <small>ур.${r[2]}</small></span><span class="g">${r[3]}</span>`;
     list.appendChild(row);
   });
-  $('online').textContent = `Онлайн: ${info.online}`;
+  $('online').textContent = `Онлайн: ${info.online}` + (info.bots ? ` · ботов: ${info.bots}` : '');
 }
 
 function updateBossBar(nb) {
@@ -1092,7 +1267,7 @@ function updateTooltip() {
   if (buildHover) {
     const d = S.BUILDINGS[buildHover];
     const cost = buildHover === 'townhall' ? (pf && pf.thLvl > 0 ? S.thRebuildCost(pf.thLvl) : {}) : d.cost;
-    html = `<div class="tt-t">${d.icon} ${d.name}</div><div>${d.desc}</div><div class="tt-k">${costStr(cost)}</div>`;
+    html = `<div class="tt-t">${d.name}</div><div>${d.desc}</div><div class="tt-k">${costStr(cost)}</div>`;
     const r = document.querySelector(`.bslot[data-type="${buildHover}"]`).getBoundingClientRect();
     tt.style.left = Math.min(W - 290, r.left) + 'px';
     tt.style.top = (r.top - 90) + 'px';
@@ -1100,7 +1275,7 @@ function updateTooltip() {
     const s = hovered;
     const d = S.BUILDINGS[s.type];
     const owner = info.names[s.pid];
-    html = `<div class="tt-t">${d.icon} ${d.name} · ур. ${s.lvl}</div>`;
+    html = `<div class="tt-t">${d.name} · ур. ${s.lvl}</div>`;
     if (s.rel === 0) {
       let up;
       if (s.type === 'townhall') up = s.lvl < S.TH_MAX ? S.thUpgradeCost(s.lvl + 1) : null;
@@ -1129,7 +1304,7 @@ function toast(m) {
 function addFeed(m, big) {
   const wrap = el('div', 'feed-wrap');
   const it = el('div', 'feed-item' + (big ? ' big' : ''));
-  it.textContent = m;
+  it.innerHTML = richText(m);
   wrap.appendChild(it);
   const feed = $('feed');
   feed.appendChild(wrap);
@@ -1181,7 +1356,7 @@ function drawPreviews(t) {
     bg.clearRect(0, 0, pvBuf.width, pvBuf.height);
     const real = g;
     g = bg;
-    drawHero(17 * PIX.ART, 14 * PIX.ART, p.cls, Math.sin(t * 1.5) * 0.5, 0, (t * 1000 % 1400) / 350, {}, t, 0, true);
+    drawHero(17 * PIX.ART, 13 * PIX.ART, p.cls, Math.sin(t * 1.5) * 0.5, 0, (t * 1000 % 1400) / 350, {}, t, 0, true);
     g = real;
     const pg = p.cv.getContext('2d');
     pg.imageSmoothingEnabled = false;
@@ -1205,7 +1380,7 @@ $('respawn').onclick = () => {
 };
 function showDeath() {
   $('death').classList.remove('hidden');
-  $('deathby').textContent = `Убийца: ${deathInfo.by}` + (deathInfo.lost ? ` · потеряно ${deathInfo.lost}🪙` : '');
+  $('deathby').textContent = `Убийца: ${deathInfo.by}` + (deathInfo.lost ? ` · потеряно ${deathInfo.lost} золота` : '');
   markSel();
   const btn = $('respawn');
   const tick = () => {

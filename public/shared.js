@@ -2,8 +2,10 @@
 (function (root) {
   const S = {};
 
-  S.W = 8000;
-  S.H = 8000;
+  // ~10x the area of the original 8000x8000 map
+  S.W = 25000;
+  S.H = 25000;
+  S.MOB_CAP = 1000;
   S.TICK = 30;
   S.DT = 1 / S.TICK;
   S.TILE = 80;
@@ -46,14 +48,20 @@
   // Difficulty multiplier of neutral monsters per biome
   S.BIOME_TIER = [1, 1.3, 1.6, 1.8, 1.5, 2.2];
 
-  S.BOSSES = [
-    { key: 'treant', name: 'Древний Энт', x: 2700, y: 2900, r: 70, hp: 6000, biome: B.FOREST, xp: 1600, loot: { wood: 600, stone: 150, gold: 250 } },
-    { key: 'lich', name: 'Король-Лич', x: 4000, y: 700, r: 55, hp: 7000, biome: B.SNOW, xp: 2200, loot: { wood: 150, stone: 250, gold: 500 } },
-    { key: 'hydra', name: 'Болотная Гидра', x: 1000, y: 5000, r: 75, hp: 7500, biome: B.SWAMP, xp: 2200, loot: { wood: 400, stone: 200, gold: 450 } },
-    { key: 'colossus', name: 'Каменный Колосс', x: 6300, y: 2700, r: 85, hp: 9000, biome: B.MOUNTAIN, xp: 2600, loot: { wood: 100, stone: 700, gold: 400 } },
-    { key: 'dragon', name: 'Огненный Дракон', x: 6600, y: 6600, r: 90, hp: 12000, biome: B.VOLCANO, xp: 3500, loot: { wood: 300, stone: 300, gold: 1000 } },
+  // two lairs of every boss; positions are fractions of the map size
+  const BOSS_TYPES = {
+    treant: { name: 'Древний Энт', r: 70, hp: 6000, biome: B.FOREST, xp: 1600, loot: { wood: 600, stone: 150, gold: 250 } },
+    lich: { name: 'Король-Лич', r: 55, hp: 7000, biome: B.SNOW, xp: 2200, loot: { wood: 150, stone: 250, gold: 500 } },
+    hydra: { name: 'Болотная Гидра', r: 75, hp: 7500, biome: B.SWAMP, xp: 2200, loot: { wood: 400, stone: 200, gold: 450 } },
+    colossus: { name: 'Каменный Колосс', r: 85, hp: 9000, biome: B.MOUNTAIN, xp: 2600, loot: { wood: 100, stone: 700, gold: 400 } },
+    dragon: { name: 'Огненный Дракон', r: 90, hp: 12000, biome: B.VOLCANO, xp: 3500, loot: { wood: 300, stone: 300, gold: 1000 } },
+  };
+  const LAIRS = [
+    ['treant', 0.34, 0.36], ['lich', 0.5, 0.07], ['hydra', 0.1, 0.6], ['colossus', 0.79, 0.33], ['dragon', 0.84, 0.84],
+    ['treant', 0.66, 0.56], ['lich', 0.18, 0.1], ['hydra', 0.2, 0.74], ['colossus', 0.38, 0.86], ['dragon', 0.93, 0.7],
   ];
-  S.SPAWN = { x: 4000, y: 4200 };
+  S.BOSSES = LAIRS.map(([key, fx, fy]) => Object.assign({ key, x: Math.round(fx * S.W), y: Math.round(fy * S.H) }, BOSS_TYPES[key]));
+  S.SPAWN = { x: Math.round(S.W * 0.5), y: Math.round(S.H * 0.52) };
 
   S.biomeAt = function (x, y) {
     for (const b of S.BOSSES) {
@@ -100,18 +108,100 @@
     { key: 'gather', name: 'Добыча', color: '#e8c95a' },
   ];
   S.STAT_MAX = 8;
+  S.START_PTS = 5;
   S.MAX_LVL = 40;
   S.xpFor = function (lvl) { return Math.floor(35 * Math.pow(lvl, 1.65)); };
 
-  S.heroStats = function (cls, st, lvl) {
+  // Advanced classes: unlocked at level 10, empowered at level 20 (tier 2)
+  S.EVOLVE_LVL = 10;
+  S.EMPOWER_LVL = 20;
+  S.SUBCLASSES = {
+    cavalier: {
+      base: 'warrior', name: 'Кавалерист', icon: 'charge', r: 26,
+      desc: 'Верхом на коне: самый быстрый, бьёт копьём издалека. Умение — таран сквозь врагов.',
+      desc20: 'Таран перезаряжается быстрее, бьёт в 1.5 раза сильнее и в конце даёт ударную волну.',
+      hp: 1.15, speed: 1.35, dmg: 1.15, cd: 1.1, range: 125, arc: 0.5, ability: { name: 'Таран', cd: 6, dmg: 70 },
+    },
+    guardian: {
+      base: 'warrior', name: 'Щитоносец', icon: 'bastion', r: 25,
+      desc: 'Огромный щит срезает 40% урона спереди. Умение — бастион: 3 с почти неуязвим и отбрасывает врагов.',
+      desc20: 'Бастион отражает вражеские снаряды обратно.',
+      hp: 1.6, speed: 0.92, dmg: 0.95, cd: 1, range: 78, arc: 1.2, ability: { name: 'Бастион', cd: 10, dmg: 25 },
+    },
+    berserker: {
+      base: 'warrior', name: 'Берсерк', icon: 'rage', r: 24,
+      desc: 'Топор и вампиризм 12%. Умение — ярость: атаки на 80% чаще, бег на 30% быстрее.',
+      desc20: 'В ярости сам крутит смертельный вихрь вокруг себя.',
+      hp: 1.1, speed: 1.05, dmg: 1.1, cd: 0.8, range: 86, arc: 1.3, ability: { name: 'Ярость', cd: 12 },
+    },
+    sniper: {
+      base: 'ranger', name: 'Снайпер', icon: 'deadshot', r: 22,
+      desc: 'Арбалет: тяжёлые болты летят далеко и пробивают двоих. Умение — смертельный выстрел.',
+      desc20: 'Болты пробивают четверых, смертельный выстрел — три болта веером.',
+      hp: 1.0, speed: 1.0, dmg: 2.5, cd: 2.3, projSpeed: 1500, life: 0.85, ability: { name: 'Смертельный выстрел', cd: 7, dmg: 5 },
+    },
+    beastmaster: {
+      base: 'ranger', name: 'Зверолов', icon: 'pack', r: 22,
+      desc: 'Рядом всегда 2 ручных волка. Умение — клич стаи: ещё 3 волка на 12 с и лечение зверей.',
+      desc20: 'Постоянных волков трое и они сильнее, клич зовёт пятерых.',
+      hp: 1.15, speed: 1.05, dmg: 0.95, cd: 1, ability: { name: 'Клич стаи', cd: 14 },
+    },
+    shadow: {
+      base: 'ranger', name: 'Ловчий теней', icon: 'shadow', r: 21,
+      desc: 'Метает веер из трёх кинжалов. Умение — шаг в тень: рывок и невидимость, первый удар двойной.',
+      desc20: 'Невидимость дольше, удар из тени тройной, перезарядка короче.',
+      hp: 0.95, speed: 1.15, dmg: 1.0, cd: 0.9, ability: { name: 'Шаг в тень', cd: 6 },
+    },
+    storm: {
+      base: 'mage', name: 'Маг молний', icon: 'storm', r: 22,
+      desc: 'Цепная молния бьёт мгновенно и перескакивает на 3 цели. Умение — гроза из 10 разрядов.',
+      desc20: 'Молния перескакивает на 4 цели, гроза из 16 разрядов оглушает.',
+      hp: 1.0, speed: 1.0, dmg: 0.9, cd: 0.85, ability: { name: 'Гроза', cd: 10, dmg: 45 },
+    },
+    druid: {
+      base: 'mage', name: 'Друид', icon: 'roots', r: 22,
+      desc: 'Шипы пробивают и замедляют, регенерация вдвое выше. Умение — корни: сковывают врагов и лечат своих.',
+      desc20: 'Корни держат дольше и призывают двух энтов-защитников.',
+      hp: 1.25, speed: 1.0, dmg: 0.95, cd: 0.8, ability: { name: 'Корни природы', cd: 10, dmg: 30, radius: 280 },
+    },
+    holy: {
+      base: 'mage', name: 'Святой маг', icon: 'bless', r: 22,
+      desc: 'Сферы света лечат союзников рядом с попаданием, аура лечит отряд. Умение — благословение.',
+      desc20: 'Благословение ещё и выжигает врагов вокруг.',
+      hp: 1.15, speed: 1.0, dmg: 1.0, cd: 0.9, ability: { name: 'Благословение', cd: 12, dmg: 70, radius: 350 },
+    },
+  };
+  S.subOf = function (cls, sub) {
+    const d = sub && Object.prototype.hasOwnProperty.call(S.SUBCLASSES, sub) ? S.SUBCLASSES[sub] : null;
+    return d && d.base === cls ? d : null;
+  };
+  // sprite / radius / name for a hero type key (base class or subclass)
+  S.heroDef = function (key) {
+    if (Object.prototype.hasOwnProperty.call(S.SUBCLASSES, key)) {
+      const d = S.SUBCLASSES[key];
+      return { name: d.name, r: d.r || S.CLASSES[d.base].r, base: d.base, ability: d.ability, icon: d.icon };
+    }
+    const c = S.CLASSES[key] || S.CLASSES.warrior;
+    return { name: c.name, r: c.r, base: key, ability: c.ability, icon: { warrior: 'dash', ranger: 'volley', mage: 'nova' }[key] };
+  };
+  S.abilityCd = function (cls, sub, lvl) {
+    const d = S.subOf(cls, sub);
+    if (!d) return S.CLASSES[cls].ability.cd;
+    const t2 = lvl >= S.EMPOWER_LVL;
+    return d.ability.cd * (t2 && (sub === 'cavalier' || sub === 'shadow' || sub === 'sniper') ? 0.65 : 1);
+  };
+
+  S.heroStats = function (cls, st, lvl, sub) {
     const c = S.CLASSES[cls];
+    const d = S.subOf(cls, sub);
+    const t2 = d && lvl >= S.EMPOWER_LVL;
     const lv = 1 + (lvl - 1) * 0.02;
     return {
-      maxHp: Math.round(c.hp * (1 + 0.13 * st[2]) * lv),
-      dmg: c.dmg * (1 + 0.11 * st[0]) * lv,
-      cd: c.cd / (1 + 0.09 * st[1]),
-      regen: c.hp * (0.008 + 0.006 * st[3]),
-      speed: c.speed * (1 + 0.045 * st[4]),
+      maxHp: Math.round(c.hp * (1 + 0.13 * st[2]) * lv * (d ? d.hp : 1) * (t2 ? 1.1 : 1)),
+      dmg: c.dmg * (1 + 0.11 * st[0]) * lv * (d ? d.dmg : 1) * (t2 ? 1.15 : 1),
+      cd: (c.cd / (1 + 0.09 * st[1])) * (d ? d.cd : 1),
+      regen: c.hp * (0.008 + 0.006 * st[3]) * (sub === 'druid' && d ? 2 : 1),
+      speed: c.speed * (1 + 0.045 * st[4]) * (d ? d.speed : 1),
       gather: c.gather * (1 + 0.22 * st[5]),
     };
   };
@@ -129,8 +219,9 @@
     mine: { name: 'Золотой рудник', icon: '💰', size: 76, hp: 750, cost: { wood: 90, stone: 90 }, income: { gold: 1 }, desc: 'Даёт золото.' },
     barracks: { name: 'Казарма', icon: '⚔️', size: 84, hp: 1150, cost: { wood: 150, stone: 100, gold: 80 }, desc: 'Нанимает рыцарей. Они ходят за вами в набеги.' },
     shrine: { name: 'Святилище', icon: '✨', size: 60, hp: 650, cost: { stone: 120, gold: 120 }, heal: 12, range: 280, desc: 'Лечит вас, союзников и здания рядом.' },
+    warcamp: { name: 'Лагерь наёмников', icon: '🪓', size: 80, hp: 1000, cost: { wood: 180, stone: 120, gold: 140 }, desc: 'Нанимает наёмников: они сами бегут бить ближайших врагов.' },
   };
-  S.BUILD_ORDER = ['townhall', 'wall', 'tower', 'magetower', 'sawmill', 'quarry', 'mine', 'barracks', 'shrine'];
+  S.BUILD_ORDER = ['townhall', 'wall', 'tower', 'magetower', 'sawmill', 'quarry', 'mine', 'barracks', 'shrine', 'warcamp'];
   S.TH_MAX = 5;
   S.BLD_MAX = 3;
   // caps per townhall level 1..5
@@ -144,6 +235,7 @@
     mine: [0, 1, 1, 2, 3],
     barracks: [0, 1, 1, 2, 2],
     shrine: [0, 0, 1, 1, 2],
+    warcamp: [0, 1, 1, 2, 2],
   };
   S.thRadius = function (lvl) { return 380 + lvl * 110; };
   S.thUpgradeCost = function (toLvl) { return { wood: 220 * (toLvl - 1), stone: 220 * (toLvl - 1), gold: 140 * (toLvl - 1) }; };
@@ -183,6 +275,13 @@
     ['imp', 'golem', 'imp'],
   ];
   S.KNIGHT = { name: 'Рыцарь', hp: 110, r: 17, speed: 215, dmg: 11, cd: 0.8 };
+  // other allied units that share the knight AI
+  S.ALLY_UNITS = {
+    knight: S.KNIGHT,
+    merc: { name: 'Наёмник', hp: 150, r: 17, speed: 230, dmg: 15, cd: 0.9 },
+    wolf: { name: 'Волк', hp: 90, r: 17, speed: 270, dmg: 10, cd: 0.7 },
+    ent: { name: 'Энт', hp: 240, r: 22, speed: 150, dmg: 17, cd: 1.2 },
+  };
 
   // ------------------------------------------------------------ collision
   // list items: {k:'n', x, y, r} nodes or {k:'b', x, y, hs, ...} buildings.

@@ -105,3 +105,92 @@ game.tick();
 for (const s of game.statics.values()) assert.ok(s.k === 'n' || own(S.BUILDINGS, s.type));
 console.log('malformed input ok');
 function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+// every advanced class: evolve at 10, empower at 20, fight for a while
+{
+  const g = new Game();
+  g.init(null);
+  const mk = (name, cls) => {
+    const c = { ws: null, sent: [], sendRaw(s) { this.sent.push(s); if (this.sent.length > 5) this.sent.shift(); }, send(o) { this.sendRaw(JSON.stringify(o)); } };
+    g.onMessage(c, { t: 'join', name, cls });
+    return c;
+  };
+  const fresh = mk('fresh', 'mage');
+  assert.strictEqual(fresh.prof.pts, S.START_PTS, 'new heroes start with bonus skill points');
+  const bots = [];
+  let q = 0;
+  for (const [sub, d] of Object.entries(S.SUBCLASSES)) {
+    const c = mk(sub, d.base);
+    g.onMessage(c, { t: 'evolve', sub });
+    assert.strictEqual(c.prof.sub, null, 'cannot evolve before level 10');
+    g.giveXp(c.prof, 1e6);
+    g.onMessage(c, { t: 'evolve', sub });
+    assert.strictEqual(c.prof.sub, sub, 'evolved into ' + sub);
+    assert.strictEqual(c.hero.type, sub);
+    assert.strictEqual(c.hero.tier, 2);
+    // park near the forest boss with monsters around
+    c.hero.x = 2700 + (q % 3) * 120 - 120; c.hero.y = 3400 + Math.floor(q / 3) * 100; q++;
+    bots.push(c);
+  }
+  const wrong = mk('wrong', 'warrior');
+  g.giveXp(wrong.prof, 1e6);
+  g.onMessage(wrong, { t: 'evolve', sub: 'druid' });
+  assert.strictEqual(wrong.prof.sub, null, 'cannot take another class branch');
+  let s2 = 0;
+  for (let i = 0; i < 30 * 20; i++) {
+    for (const c of bots) {
+      if (c.hero.dead) { if (i % 30 === 0) g.onMessage(c, { t: 'respawn', cls: c.prof.cls }); continue; }
+      c.hero.invulnT = 0;
+      g.onMessage(c, { t: 'i', s: ++s2, mx: 0, my: -0.2, a: -Math.PI / 2 + Math.sin(i / 20), f: 1, ab: i % 45 === 0 ? 1 : 0 });
+    }
+    g.tick();
+  }
+  const pets = [...g.units.values()].filter((u) => u.kind === 'knight' && u.pet).length;
+  console.log(`advanced classes ok, pets alive: ${pets}`);
+  for (const c of bots) assert.ok(c.prof.sub, 'subclass kept after death: ' + c.prof.name);
+  // class change on respawn resets the branch
+  const bm = bots.find((c) => c.prof.sub === 'beastmaster');
+  bm.hero.dead = true; bm.deadInfo = { until: 0 };
+  g.onMessage(bm, { t: 'respawn', cls: 'mage' });
+  assert.strictEqual(bm.prof.sub, null);
+
+  // warcamp mercenaries hunt enemies on their own
+  const boss = bots[0];
+  Object.assign(boss.prof.res, { wood: 5000, stone: 5000, gold: 5000 });
+  for (const n of [...g.statics.values()]) if (n.k === 'n' && Math.hypot(n.x - 5000, n.y - 5600) < 700) g.removeStatic(n);
+  boss.hero.x = 5000; boss.hero.y = 5400;
+  g.onMessage(boss, { t: 'build', type: 'townhall', x: 5000, y: 5600 });
+  const th2 = g.thOf(boss.prof);
+  assert.ok(th2);
+  g.onMessage(boss, { t: 'up', id: th2.id });
+  g.onMessage(boss, { t: 'build', type: 'warcamp', x: 5200, y: 5600 });
+  assert.strictEqual(g.countOf(boss.prof.pid, 'warcamp'), 1, 'warcamp built');
+  const seen = new Set();
+  for (let i = 0; i < 30 * 25; i++) {
+    g.tick();
+    for (const u of g.units.values()) if (u.type === 'merc') seen.add(u.id);
+  }
+  const mercs = seen.size;
+  assert.ok(mercs >= 1, 'mercenaries spawned');
+  console.log(`warcamp ok, mercs: ${mercs}`);
+}
+
+// bots: they should level up, build bases and never crash the server
+{
+  const g = new Game({ bots: 6 });
+  g.init(null);
+  assert.strictEqual(g.botMgr.bots.length, 6);
+  const t0 = Date.now();
+  for (let i = 0; i < 30 * 240; i++) g.tick();
+  const ms = Date.now() - t0;
+  const profs = g.botMgr.bots.map((b) => b.c.prof);
+  const ths = profs.filter((p) => g.thOf(p)).length;
+  const lv = profs.map((p) => p.lvl);
+  console.log(`bots ok: 4 min in ${ms}ms (${(ms / 7200).toFixed(2)} ms/tick), levels ${lv.join(',')}, bases ${ths}, buildings ${[...g.statics.values()].filter((s) => s.k === 'b').length}, mobs ${g.mobCount}`);
+  assert.ok(lv.some((l) => l > 1), 'bots gain levels');
+  assert.ok(ths >= 1, 'bots build bases');
+  const data = JSON.parse(JSON.stringify(g.serialize()));
+  const g2 = new Game({ bots: 6 });
+  g2.init(data);
+  assert.deepStrictEqual(g2.botMgr.bots.map((b) => b.c.prof.pid).sort(), profs.map((p) => p.pid).sort(), 'bots keep their profiles after restart');
+}

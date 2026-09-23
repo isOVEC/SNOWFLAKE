@@ -1,5 +1,6 @@
 // Authoritative world simulation.
 const S = require('../public/shared.js');
+const { BotManager } = require('./bots');
 
 const DT = S.DT;
 let nextId = 1;
@@ -58,7 +59,8 @@ class Grid {
 }
 
 class Game {
-  constructor() {
+  constructor(opts) {
+    this.opts = opts || {};
     this.time = 0;
     this.tickN = 0;
     this.units = new Map(); // heroes, mobs, bosses, knights
@@ -80,7 +82,9 @@ class Game {
     if (saved) this.load(saved);
     this.genNodes();
     for (const def of S.BOSSES) this.spawnBoss(def);
-    for (let i = 0; i < 400 && this.mobCount < 240; i++) this.spawnMobPack();
+    this.botMgr = new BotManager(this, this.opts.bots || 0);
+    this.botMgr.start();
+    for (let i = 0; i < S.MOB_CAP * 3 && this.mobCount < S.MOB_CAP; i++) this.spawnMobPack();
   }
 
   genNodes() {
@@ -128,6 +132,7 @@ class Game {
     for (const p of saved.profiles || []) {
       p.online = false;
       p.thId = 0;
+      if (!p.startPts) { p.pts += S.START_PTS; p.startPts = true; }
       this.profiles.set(p.pid, p);
       this.tokens.set(p.token, p.pid);
     }
@@ -142,8 +147,8 @@ class Game {
     const profiles = [];
     for (const p of this.profiles.values()) {
       profiles.push({
-        pid: p.pid, token: p.token, name: p.name, clan: p.clan, cls: p.cls, lvl: p.lvl, xp: p.xp, pts: p.pts,
-        st: p.st, res: p.res, glory: p.glory, kills: p.kills, thLvl: p.thLvl, lastSeen: p.lastSeen,
+        pid: p.pid, token: p.token, name: p.name, clan: p.clan, cls: p.cls, sub: p.sub || null, lvl: p.lvl, xp: p.xp, pts: p.pts,
+        st: p.st, res: p.res, glory: p.glory, kills: p.kills, thLvl: p.thLvl, lastSeen: p.lastSeen, startPts: true, empowered: !!p.empowered, bot: !!p.bot,
       });
     }
     const buildings = [];
@@ -164,8 +169,8 @@ class Game {
       pid = newId();
       token = [...Array(24)].map(() => 'abcdefghijklmnopqrstuvwxyz0123456789'[(Math.random() * 36) | 0]).join('');
       prof = {
-        pid, token, name, clan, cls, lvl: 1, xp: 0, pts: 0, st: [0, 0, 0, 0, 0, 0],
-        res: { wood: 60, stone: 40, gold: 20 }, glory: 0, kills: 0, thLvl: 0, thId: 0, online: false,
+        pid, token, name, clan, cls, lvl: 1, xp: 0, pts: S.START_PTS, startPts: true, st: [0, 0, 0, 0, 0, 0],
+        res: { wood: 60, stone: 40, gold: 20 }, glory: 0, kills: 0, thLvl: 0, thId: 0, online: false, sub: null,
       };
       this.profiles.set(pid, prof);
       this.tokens.set(token, pid);
@@ -204,7 +209,7 @@ class Game {
     this.clients.add(client);
     this.spawnHero(client);
     client.send({ t: 'welcome', id: prof.pid, token: prof.token, tm: Math.round(this.time * 1000) });
-    this.feed(`${this.dispName(prof)} вошёл в мир`);
+    if (!msg.quiet) this.feed(`${this.dispName(prof)} вошёл в мир`);
   }
 
   leave(client) {
@@ -229,9 +234,10 @@ class Game {
 
   spawnHero(client, cls) {
     const prof = client.prof;
-    if (cls && own(S.CLASSES, cls)) prof.cls = cls;
-    const c = S.CLASSES[prof.cls];
-    const stats = S.heroStats(prof.cls, prof.st, prof.lvl);
+    if (cls && own(S.CLASSES, cls) && cls !== prof.cls) { prof.cls = cls; prof.sub = null; prof.empowered = false; }
+    if (!S.subOf(prof.cls, prof.sub)) prof.sub = null;
+    const c = S.heroDef(prof.sub || prof.cls);
+    const stats = S.heroStats(prof.cls, prof.st, prof.lvl, prof.sub);
     let x, y;
     const th = this.thOf(prof);
     if (th) {
@@ -244,7 +250,9 @@ class Game {
       y = S.SPAWN.y + Math.sin(a) * d;
     }
     const h = {
-      id: prof.pid, kind: 'hero', type: prof.cls, pid: prof.pid, team: this.teamOf(prof),
+      id: prof.pid, kind: 'hero', type: prof.sub || prof.cls, cls: prof.cls, sub: prof.sub,
+      tier: prof.sub ? (prof.lvl >= S.EMPOWER_LVL ? 2 : 1) : 0, pid: prof.pid, team: this.teamOf(prof),
+      rageT: 0, bastionT: 0, shieldT: 0, stealthT: 0, ambush: 0, stormN: 0, stormT: 0, whirlT: 0, petT: 0,
       x, y, r: c.r, hp: stats.maxHp, maxHp: stats.maxHp, stats,
       aim: 0, firing: false, abil: false, cd: 0, acd: 0, slowT: 0, slowF: 1, kbx: 0, kby: 0,
       dashT: 0, dashVx: 0, dashVy: 0, dashHit: null, lastHurt: -99, invulnT: 2.5, atkN: 0,
@@ -260,8 +268,11 @@ class Game {
 
   refreshHeroStats(h) {
     const prof = h.client.prof;
-    const s = S.heroStats(prof.cls, prof.st, prof.lvl);
+    const s = S.heroStats(prof.cls, prof.st, prof.lvl, prof.sub);
     const ratio = h.hp / h.maxHp;
+    h.cls = prof.cls; h.sub = prof.sub; h.type = prof.sub || prof.cls;
+    h.tier = prof.sub ? (prof.lvl >= S.EMPOWER_LVL ? 2 : 1) : 0;
+    h.r = S.heroDef(h.type).r;
     h.stats = s;
     h.maxHp = s.maxHp;
     h.hp = Math.min(h.maxHp, Math.max(1, ratio * h.maxHp));
@@ -303,6 +314,18 @@ class Game {
         break;
       }
       case 'build': this.tryBuild(client, String(msg.type), +msg.x, +msg.y); break;
+      case 'evolve': {
+        const d = S.subOf(prof.cls, String(msg.sub));
+        if (!d || prof.sub || prof.lvl < S.EVOLVE_LVL) return;
+        prof.sub = String(msg.sub);
+        if (h && !h.dead) {
+          this.refreshHeroStats(h);
+          h.acd = 0;
+          this.fx.push(['lvl', h.x, h.y, h.r]);
+        }
+        this.feed(`✦ ${this.dispName(prof)} становится: ${d.name}`);
+        break;
+      }
       case 'up': this.tryUpgrade(client, msg.id | 0); break;
       case 'del': this.tryDemolish(client, msg.id | 0); break;
       case 'recall':
@@ -496,13 +519,15 @@ class Game {
     return b;
   }
 
-  spawnKnight(bar) {
+  spawnKnight(bar, type) {
     const prof = this.profiles.get(bar.pid);
-    const k = S.KNIGHT;
+    type = type || 'knight';
+    const k = S.ALLY_UNITS[type];
     const m = S.lvlMul(bar.lvl);
     const a = Math.random() * 6.28;
     const u = {
-      id: newId(), kind: 'knight', type: 'knight', pid: bar.pid, team: bar.team, bar: bar.id,
+      id: newId(), kind: 'knight', type, pid: bar.pid, team: bar.team, bar: bar.id, speed: k.speed, cdMax: k.cd,
+      merc: type === 'merc',
       x: bar.x + Math.cos(a) * (bar.hs + 25), y: bar.y + Math.sin(a) * (bar.hs + 25), r: k.r,
       hp: k.hp * m, maxHp: k.hp * m, dmg: k.dmg * m, cd: 0, aim: a, target: null,
       slowT: 0, slowF: 1, kbx: 0, kby: 0, lastHurt: -99, name: prof ? prof.name : '',
@@ -514,7 +539,7 @@ class Game {
   // ================================================================ combat
   hostile(a, b) { return a.team !== b.team; }
 
-  targetable(u) { return !(u.dead || (u.kind === 'hero' && u.invulnT > 0)); }
+  targetable(u) { return !(u.dead || (u.kind === 'hero' && (u.invulnT > 0 || u.stealthT > 0))); }
 
   // src: {pid, team, hero (bool: gathering allowed), x, y, kb}
   hurt(t, amount, src) {
@@ -550,7 +575,16 @@ class Game {
     }
     // units
     if (t.dead || (t.kind === 'hero' && t.invulnT > 0)) return;
-    if (t.kind === 'hero') { t.recallT = 0; }
+    if (t.kind === 'hero') {
+      t.recallT = 0;
+      if (t.bastionT > 0) amount *= 0.2;
+      else if (t.sub === 'guardian' && src.x !== undefined && angDiff(Math.atan2(src.y - t.y, src.x - t.x), t.aim) < 1.2) amount *= 0.6;
+      if (t.shieldT > 0) amount *= 0.3;
+    }
+    if (src.ls) {
+      const a = this.units.get(src.unitId);
+      if (a && !a.dead) a.hp = Math.min(a.maxHp, a.hp + amount * src.ls);
+    }
     t.hp -= amount;
     t.lastHurt = this.time;
     this.fx.push(['hit', t.x, t.y - t.r, Math.round(amount), 0]);
@@ -588,6 +622,10 @@ class Game {
       prof.lvl++;
       prof.pts++;
       up = true;
+    }
+    if (up && prof.sub && prof.lvl >= S.EMPOWER_LVL && !prof.empowered) {
+      prof.empowered = true;
+      this.feed(`✦ Сила «${S.SUBCLASSES[prof.sub].name}» пробуждается в ${this.dispName(prof)}!`, true);
     }
     if (up) {
       const h = this.units.get(prof.pid);
@@ -718,10 +756,11 @@ class Game {
 
   srcOf(u, hero) {
     const name = u.kind === 'hero' ? u.client.prof.name : u.kind === 'boss' ? u.def.name : u.kind === 'mob' ? u.def.name : u.name;
-    return { pid: u.pid || null, team: u.team, hero: !!hero, x: u.x, y: u.y, unitId: u.id, name };
+    return { pid: u.pid || null, team: u.team, hero: !!hero, x: u.x, y: u.y, unitId: u.id, name, ls: u.sub === 'berserker' ? 0.12 : 0 };
   }
 
   shoot(owner, type, x, y, ang, speed, life, dmg, r, extra) {
+    if (owner.kind === 'boss') owner.atkN = (owner.atkN || 0) + 1;
     const p = {
       id: newId(), type, x, y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, life, dmg, r,
       team: owner.team, pid: owner.pid || null, hero: owner.kind === 'hero', unitId: owner.kind ? owner.id : 0,
@@ -734,49 +773,217 @@ class Game {
   }
 
   heroAttack(h) {
-    const c = S.CLASSES[h.type];
+    const c = S.CLASSES[h.cls];
     h.atkN++;
-    const dmg = h.stats.dmg;
-    if (h.type === 'warrior') {
-      this.meleeSwing(h, c.range, c.arc, dmg);
-    } else if (h.type === 'ranger') {
-      this.shoot(h, 'arrow', h.x + Math.cos(h.aim) * h.r, h.y + Math.sin(h.aim) * h.r, h.aim, c.projSpeed, c.life, dmg, 6);
+    let dmg = h.stats.dmg;
+    if (h.stealthT > 0 || h.ambush > 0) {
+      dmg *= h.tier === 2 ? 3 : 2;
+      h.stealthT = 0;
+      h.ambush = 0;
+    }
+    const mx = h.x + Math.cos(h.aim) * h.r, my = h.y + Math.sin(h.aim) * h.r;
+    const sub = h.sub;
+    if (h.cls === 'warrior') {
+      const d = S.subOf(h.cls, sub);
+      this.meleeSwing(h, d ? d.range : c.range, d ? d.arc : c.arc, dmg, sub === 'cavalier' ? 220 : 140);
+    } else if (sub === 'sniper') {
+      const d = S.SUBCLASSES.sniper;
+      this.shoot(h, 'bolt_x', mx, my, h.aim, d.projSpeed, d.life, dmg, 7, { pierce: h.tier === 2 ? 4 : 2, kb: 120 });
+    } else if (sub === 'shadow') {
+      for (let i = -1; i <= 1; i++) this.shoot(h, 'dagger', mx, my, h.aim + i * 0.16, 950, 0.5, dmg * 0.6, 6);
+    } else if (h.cls === 'ranger') {
+      this.shoot(h, 'arrow', mx, my, h.aim, c.projSpeed, c.life, dmg, 6);
+    } else if (sub === 'storm') {
+      this.chainLightning(h, dmg, h.tier === 2 ? 4 : 3);
+    } else if (sub === 'druid') {
+      this.shoot(h, 'thorn', mx, my, h.aim, 720, 0.9, dmg * 0.95, 9, { pierce: 1, slow: 0.6 });
+    } else if (sub === 'holy') {
+      this.shoot(h, 'holy', mx, my, h.aim, 650, 1.0, dmg * 1.05, 10, { splash: 60, holy: 1 });
     } else {
-      this.shoot(h, 'fire', h.x + Math.cos(h.aim) * h.r, h.y + Math.sin(h.aim) * h.r, h.aim, c.projSpeed, c.life, dmg, 11, { splash: c.splash });
+      this.shoot(h, 'fire', mx, my, h.aim, c.projSpeed, c.life, dmg, 11, { splash: c.splash });
+    }
+  }
+
+  // instant lightning that jumps between enemies
+  chainLightning(h, dmg, jumps) {
+    const range = 480;
+    const src = this.srcOf(h, true);
+    src.kb = 60;
+    let best = null, bd = Infinity;
+    for (const u of this.ugrid.query(h.x, h.y, range + 100)) {
+      if (u === h || !this.hostile(h, u) || !this.targetable(u)) continue;
+      const d = Math.sqrt(dist2(h, u)) - u.r;
+      if (d > range || angDiff(Math.atan2(u.y - h.y, u.x - h.x), h.aim) > 0.55) continue;
+      if (d < bd) { bd = d; best = u; }
+    }
+    if (!best) {
+      // no unit: strike a building or resource node in front (lets storm mages gather)
+      let sb = null, sd = Infinity;
+      for (const st of this.sgrid.query(h.x, h.y, range)) {
+        if (!this.statics.has(st.id) || (st.k === 'b' && st.team === h.team)) continue;
+        const d = Math.hypot(st.x - h.x, st.y - h.y) - (st.k === 'b' ? st.hs : st.r);
+        if (d > range || angDiff(Math.atan2(st.y - h.y, st.x - h.x), h.aim) > 0.4) continue;
+        if (d < sd) { sd = d; sb = st; }
+      }
+      if (sb) { this.fx.push(['bolt', h.x, h.y, sb.x, sb.y]); this.hurt(sb, dmg, src); return; }
+      this.fx.push(['bolt', h.x, h.y, h.x + Math.cos(h.aim) * range, h.y + Math.sin(h.aim) * range]);
+      return;
+    }
+    const hit = new Set();
+    let from = h, cur = best;
+    for (let i = 0; i < jumps && cur; i++) {
+      this.fx.push(['bolt', from.x, from.y, cur.x, cur.y]);
+      hit.add(cur.id);
+      this.hurt(cur, dmg, src);
+      dmg *= 0.8;
+      from = cur;
+      let next = null, nd = 230 * 230;
+      for (const u of this.ugrid.query(cur.x, cur.y, 330)) {
+        if (u === h || hit.has(u.id) || !this.hostile(h, u) || !this.targetable(u)) continue;
+        const d = dist2(cur, u);
+        if (d < nd) { nd = d; next = u; }
+      }
+      cur = next;
+    }
+  }
+
+  heroAoe(h, R, dmg, kb, fx, affectBuildings) {
+    const src = this.srcOf(h, true);
+    src.kb = kb;
+    for (const u of this.ugrid.query(h.x, h.y, R + 100)) {
+      if (u === h || !this.hostile(h, u) || !this.targetable(u)) continue;
+      if (Math.sqrt(dist2(h, u)) > R + u.r) continue;
+      this.hurt(u, dmg, src);
+    }
+    if (affectBuildings) {
+      for (const st of this.sgrid.query(h.x, h.y, R)) {
+        if (st.k === 'b' && st.team !== h.team && this.statics.has(st.id) && Math.hypot(st.x - h.x, st.y - h.y) < R + st.hs) this.hurt(st, dmg * 0.6, src);
+      }
+    }
+    if (fx) this.fx.push([fx, h.x, h.y, R]);
+  }
+
+  healAllies(h, R, frac, shield) {
+    for (const u of this.ugrid.query(h.x, h.y, R + 50)) {
+      if (u.team !== h.team || u.dead || u.kind === 'boss' || Math.sqrt(dist2(h, u)) > R + u.r) continue;
+      u.hp = Math.min(u.maxHp, u.hp + u.maxHp * frac);
+      if (shield) u.shieldT = shield;
     }
   }
 
   heroAbility(h) {
-    const c = S.CLASSES[h.type];
+    const c = S.CLASSES[h.cls];
     const mul = h.stats.dmg / c.dmg;
-    h.acd = c.ability.cd;
-    if (h.type === 'warrior') {
-      h.dashT = 0.22;
-      h.dashVx = Math.cos(h.aim) * 1400;
-      h.dashVy = Math.sin(h.aim) * 1400;
-      h.dashHit = new Set();
-      h.dashDmg = c.ability.dmg * mul;
-      this.fx.push(['dash', h.x, h.y, h.aim]);
-    } else if (h.type === 'ranger') {
-      for (let i = -4; i <= 4; i++) {
-        const a = h.aim + i * 0.1;
-        this.shoot(h, 'arrow', h.x, h.y, a, c.projSpeed, c.life, c.ability.dmg * mul, 6, { pierce: 1 });
+    const t2 = h.tier === 2;
+    h.acd = S.abilityCd(h.cls, h.sub, h.client.prof.lvl);
+    const sub = h.sub;
+    const d = S.subOf(h.cls, sub);
+    if (!d) {
+      if (h.cls === 'warrior') this.startDash(h, 0.22, 1400, c.ability.dmg * mul, 260);
+      else if (h.cls === 'ranger') {
+        for (let i = -4; i <= 4; i++) this.shoot(h, 'arrow', h.x, h.y, h.aim + i * 0.1, c.projSpeed, c.life, c.ability.dmg * mul, 6, { pierce: 1 });
+      } else {
+        const R = c.ability.radius;
+        for (const u of this.ugrid.query(h.x, h.y, R + 100)) {
+          if (u === h || !this.hostile(h, u) || !this.targetable(u) || Math.sqrt(dist2(h, u)) > R + u.r) continue;
+          u.slowT = 2.5; u.slowF = 0.45;
+        }
+        this.heroAoe(h, R, c.ability.dmg * mul, 200, 'nova', true);
       }
-    } else {
-      const R = c.ability.radius;
-      const src = this.srcOf(h, true);
-      src.kb = 200;
-      for (const u of this.ugrid.query(h.x, h.y, R + 100)) {
-        if (u === h || !this.hostile(h, u) || !this.targetable(u)) continue;
-        if (Math.sqrt(dist2(h, u)) > R + u.r) continue;
-        u.slowT = 2.5; u.slowF = 0.45;
-        this.hurt(u, c.ability.dmg * mul, src);
-      }
-      for (const s of this.sgrid.query(h.x, h.y, R)) {
-        if (s.k === 'b' && s.team !== h.team && this.statics.has(s.id) && Math.hypot(s.x - h.x, s.y - h.y) < R + s.hs) this.hurt(s, c.ability.dmg * mul * 0.6, src);
-      }
-      this.fx.push(['nova', h.x, h.y, R]);
+      return;
     }
+    switch (sub) {
+      case 'cavalier':
+        this.startDash(h, 0.35, 1600, d.ability.dmg * mul * (t2 ? 1.5 : 1), 500);
+        h.dashShock = t2;
+        break;
+      case 'guardian':
+        h.bastionT = 3;
+        this.heroAoe(h, 170, d.ability.dmg * mul, 420, 'shield');
+        break;
+      case 'berserker':
+        h.rageT = t2 ? 6 : 5;
+        h.whirlT = 0;
+        this.fx.push(['rage', h.x, h.y, h.r]);
+        break;
+      case 'sniper': {
+        const n = t2 ? 1 : 0;
+        for (let i = -n; i <= n; i++) {
+          this.shoot(h, 'bigbolt', h.x, h.y, h.aim + i * 0.12, 1800, 0.9, h.stats.dmg * d.ability.dmg / d.dmg, 12, { pierce: 99, kb: 320 });
+        }
+        break;
+      }
+      case 'beastmaster': {
+        for (const u of this.units.values()) if (u.kind === 'knight' && u.pet && u.pid === h.pid) u.hp = u.maxHp;
+        for (let i = 0; i < (t2 ? 5 : 3); i++) this.spawnPet(h, 'wolf', 12);
+        this.fx.push(['howl', h.x, h.y, 200]);
+        break;
+      }
+      case 'shadow': {
+        this.fx.push(['blink', h.x, h.y, 0]);
+        const dx = Math.cos(h.aim), dy = Math.sin(h.aim);
+        const canPass = (st) => this.passable(st, h.team);
+        for (let i = 0; i < 16; i++) {
+          const p = { x: h.x + dx * 20, y: h.y + dy * 20 };
+          S.resolve(p, h.r, this.sgrid.query(p.x, p.y, h.r + 80), canPass);
+          if (Math.hypot(p.x - h.x, p.y - h.y) < 8) break;
+          h.x = p.x; h.y = p.y;
+        }
+        this.fx.push(['blink', h.x, h.y, 0]);
+        h.stealthT = t2 ? 4 : 2.5;
+        h.ambush = 1;
+        break;
+      }
+      case 'storm':
+        h.stormN = t2 ? 16 : 10;
+        h.stormT = 0;
+        break;
+      case 'druid': {
+        const R = d.ability.radius;
+        for (const u of this.ugrid.query(h.x, h.y, R + 100)) {
+          if (u === h || !this.hostile(h, u) || !this.targetable(u) || Math.sqrt(dist2(h, u)) > R + u.r) continue;
+          u.slowT = t2 ? 2.8 : 2; u.slowF = 0.05;
+        }
+        this.heroAoe(h, R, d.ability.dmg * mul, 0, 'roots');
+        this.healAllies(h, R, 0.25);
+        if (t2) for (let i = 0; i < 2; i++) this.spawnPet(h, 'ent', 15);
+        break;
+      }
+      case 'holy': {
+        const R = d.ability.radius;
+        this.healAllies(h, R, 0.35, 2.5);
+        if (t2) this.heroAoe(h, R, d.ability.dmg * mul, 150, null, true);
+        this.fx.push(['holy', h.x, h.y, R]);
+        break;
+      }
+    }
+  }
+
+  startDash(h, time, speed, dmg, kb) {
+    h.dashT = time;
+    h.dashVx = Math.cos(h.aim) * speed;
+    h.dashVy = Math.sin(h.aim) * speed;
+    h.dashHit = new Set();
+    h.dashDmg = dmg;
+    h.dashKb = kb;
+    this.fx.push(['dash', h.x, h.y, h.aim]);
+  }
+
+  // pets: beastmaster wolves and druid ents follow their owner
+  spawnPet(h, type, life) {
+    const def = S.ALLY_UNITS[type];
+    const lv = 1 + h.client.prof.lvl * 0.04;
+    const a = Math.random() * 6.28;
+    const u = {
+      id: newId(), kind: 'knight', type, pid: h.pid, team: h.team, bar: 0, pet: true, sub: h.sub,
+      expire: life ? this.time + life : 0,
+      x: h.x + Math.cos(a) * 50, y: h.y + Math.sin(a) * 50, r: def.r, speed: def.speed, cdMax: def.cd,
+      hp: def.hp * lv * (h.tier === 2 ? 1.4 : 1), maxHp: def.hp * lv * (h.tier === 2 ? 1.4 : 1), dmg: def.dmg * lv * (h.tier === 2 ? 1.3 : 1),
+      cd: 0, aim: a, target: null, slowT: 0, slowF: 1, kbx: 0, kby: 0, lastHurt: -99, name: h.client.prof.name,
+    };
+    this.units.set(u.id, u);
+    this.fx.push(['blink', u.x, u.y, 0]);
+    return u;
   }
 
   // ================================================================ tick
@@ -788,6 +995,7 @@ class Game {
     this.ugrid.clear();
     for (const u of this.units.values()) this.ugrid.add(u);
 
+    this.botMgr.update();
     for (const c of this.clients) this.updateHero(c);
     for (const u of this.units.values()) {
       if (u.kind === 'mob') this.updateMob(u);
@@ -800,7 +1008,8 @@ class Game {
 
     // world upkeep
     if (this.tickN % 15 === 0) {
-      if (this.mobCount < 260) this.spawnMobPack();
+      if (this.mobCount < S.MOB_CAP) this.spawnMobPack();
+      this.updateSleep();
       for (let i = this.nodeRespawns.length - 1; i >= 0; i--) {
         const r = this.nodeRespawns[i];
         if (this.time >= r.at) {
@@ -828,7 +1037,8 @@ class Game {
     const h = c.hero;
     if (!h || h.dead) { c.inputs.length = 0; return; }
     let n = c.inputs.length > 3 ? 2 : 1;
-    const speed = h.stats.speed * (h.slowT > 0 ? h.slowF : 1) * (h.recallT > 0 ? 0.35 : 1);
+    const speed = h.stats.speed * (h.slowT > 0 ? h.slowF : 1) * (h.recallT > 0 ? 0.35 : 1) *
+      (h.rageT > 0 ? 1.3 : 1) * (h.bastionT > 0 ? 0.7 : 1);
     const list = this.sgrid.query(h.x, h.y, h.r + 80);
     const canPass = (s) => this.passable(s, h.team);
     while (n-- > 0 && c.inputs.length) {
@@ -849,18 +1059,23 @@ class Game {
     h.acd -= DT;
     h.slowT -= DT;
     if (h.firing && h.cd <= 0) {
-      h.cd = h.stats.cd;
+      h.cd = h.stats.cd * (h.rageT > 0 ? 0.55 : 1);
       this.heroAttack(h);
     }
     if (h.abil && h.acd <= 0) this.heroAbility(h);
+    this.updateHeroEffects(c, h);
 
     if (h.dashT > 0) {
       h.dashT -= DT;
       const src = this.srcOf(h, true);
-      src.kb = 260;
+      src.kb = h.dashKb || 260;
       for (const u of this.ugrid.query(h.x, h.y, h.r + 100)) {
         if (u === h || !this.hostile(h, u) || h.dashHit.has(u.id) || !this.targetable(u)) continue;
         if (Math.sqrt(dist2(h, u)) < h.r + u.r + 20) { h.dashHit.add(u.id); this.hurt(u, h.dashDmg, src); }
+      }
+      if (h.dashT <= 0 && h.dashShock) {
+        h.dashShock = false;
+        this.heroAoe(h, 170, h.dashDmg * 0.6, 300, 'slam', true);
       }
     }
     // regeneration
@@ -876,6 +1091,62 @@ class Game {
           h.x = th.x; h.y = th.y + th.hs + h.r + 4;
           this.fx.push(['blink', h.x, h.y, 0]);
         }
+      }
+    }
+  }
+
+  updateHeroEffects(c, h) {
+    const t2 = h.tier === 2;
+    for (const k of ['rageT', 'bastionT', 'shieldT', 'stealthT']) if (h[k] > 0) h[k] -= DT;
+    // berserker whirlwind while raging (tier 2)
+    if (h.rageT > 0 && t2) {
+      h.whirlT -= DT;
+      if (h.whirlT <= 0) {
+        h.whirlT = 0.5;
+        this.meleeSwing(h, 110, Math.PI, h.stats.dmg * 0.7, 160);
+        this.fx.push(['whirl', h.x, h.y, 110]);
+      }
+    }
+    // storm strikes
+    if (h.stormN > 0) {
+      h.stormT -= DT;
+      if (h.stormT <= 0) {
+        h.stormT = 0.16;
+        h.stormN--;
+        const targets = [];
+        for (const u of this.ugrid.query(h.x, h.y, 620)) {
+          if (u !== h && this.hostile(h, u) && this.targetable(u) && Math.sqrt(dist2(h, u)) < 520) targets.push(u);
+        }
+        const tg = targets.length ? pick(targets) : null;
+        const a = Math.random() * 6.28, r = rand(80, 480);
+        const x = tg ? tg.x : h.x + Math.cos(a) * r, y = tg ? tg.y : h.y + Math.sin(a) * r;
+        const mul = h.stats.dmg / S.CLASSES.mage.dmg;
+        const src = this.srcOf(h, true);
+        src.x = x; src.y = y; src.kb = 80;
+        for (const u of this.ugrid.query(x, y, 160)) {
+          if (u === h || !this.hostile(h, u) || !this.targetable(u) || Math.hypot(u.x - x, u.y - y) > 60 + u.r) continue;
+          if (t2) { u.slowT = 0.8; u.slowF = 0.15; }
+          this.hurt(u, S.SUBCLASSES.storm.ability.dmg * mul, src);
+        }
+        for (const st of this.sgrid.query(x, y, 60)) {
+          if (st.k === 'b' && st.team !== h.team && this.statics.has(st.id)) this.hurt(st, S.SUBCLASSES.storm.ability.dmg * mul * 0.5, src);
+        }
+        this.fx.push(['strike', x, y, 60]);
+      }
+    }
+    if (this.tickN % 30 === h.id % 30) {
+      // holy aura
+      if (h.sub === 'holy') {
+        for (const u of this.ugrid.query(h.x, h.y, 300)) {
+          if (u.team === h.team && !u.dead && u.kind !== 'boss' && Math.sqrt(dist2(h, u)) < 250) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * (u === h ? 0.01 : 0.025));
+        }
+      }
+      // beastmaster keeps its wolves around
+      if (h.sub === 'beastmaster') {
+        let n = 0;
+        for (const u of this.units.values()) if (u.kind === 'knight' && u.pet && !u.expire && u.pid === h.pid) n++;
+        h.petT--;
+        if (n < (t2 ? 3 : 2) && h.petT <= 0) { this.spawnPet(h, 'wolf', 0); h.petT = 6; }
       }
     }
   }
@@ -925,7 +1196,20 @@ class Game {
     return d;
   }
 
+  // monsters far from every hero go to sleep so a huge map stays cheap to simulate
+  updateSleep() {
+    const heroes = [];
+    for (const u of this.units.values()) if (u.kind === 'hero' && !u.dead) heroes.push(u);
+    for (const u of this.units.values()) {
+      if (u.kind !== 'mob') continue;
+      let near = false;
+      for (const h of heroes) if (Math.abs(h.x - u.x) < 2600 && Math.abs(h.y - u.y) < 2600) { near = true; break; }
+      u.sleep = !near;
+    }
+  }
+
   updateMob(m) {
+    if (m.sleep) { m.vx = m.vy = 0; return; }
     const d = m.def;
     m.cd -= DT;
     if (m.target && (m.target.dead || !this.units.has(m.target.id) || !this.targetable(m.target))) m.target = null;
@@ -979,35 +1263,51 @@ class Game {
 
   updateKnight(k) {
     k.cd -= DT;
-    const bar = this.statics.get(k.bar);
-    if (!bar) { this.units.delete(k.id); this.fx.push(['death', k.x, k.y, 5]); return; }
-    const ownerHero = this.units.get(k.pid);
-    const anchor = ownerHero && ownerHero.kind === 'hero' && !ownerHero.dead ? ownerHero : bar;
-    const leash = anchor === bar ? 450 : 520;
+    const bar = k.bar ? this.statics.get(k.bar) : null;
+    let anchor, leash, seek;
+    if (k.pet) {
+      const owner = this.units.get(k.pid);
+      if (!owner || owner.kind !== 'hero' || owner.dead || owner.sub !== k.sub || (k.expire && this.time > k.expire)) {
+        this.units.delete(k.id); this.fx.push(['death', k.x, k.y, 5]); return;
+      }
+      anchor = owner; leash = 480; seek = 360;
+    } else {
+      if (!bar) { this.units.delete(k.id); this.fx.push(['death', k.x, k.y, 5]); return; }
+      if (k.merc) {
+        // mercenaries roam: they hunt the nearest enemy anywhere near their camp
+        anchor = bar; leash = 1500; seek = 1300;
+      } else {
+        const ownerHero = this.units.get(k.pid);
+        anchor = ownerHero && ownerHero.kind === 'hero' && !ownerHero.dead ? ownerHero : bar;
+        leash = anchor === bar ? 450 : 520; seek = 380;
+      }
+    }
     const anchorD = Math.hypot(k.x - anchor.x, k.y - anchor.y);
     if (k.target && (k.target.dead || (k.target.k === 'b' ? !this.statics.has(k.target.id) : !this.units.has(k.target.id)) || (k.target.k !== 'b' && !this.targetable(k.target)))) k.target = null;
-    if (anchorD > leash) k.target = null;
+    if (k.target && Math.hypot(k.target.x - anchor.x, k.target.y - anchor.y) > leash) k.target = null;
     if (!k.target && this.tickN % 5 === k.id % 5) {
-      k.target = this.nearestHostile(k, 380);
-      if (!k.target && anchor !== bar) {
-        // raid: attack enemy buildings near the owner
-        let best = null, bd = 330 * 330;
-        for (const s of this.sgrid.query(k.x, k.y, 330)) {
-          if (s.k !== 'b' || s.team === k.team) continue;
-          const dd = dist2(k, s);
-          if (dd < bd) { bd = dd; best = s; }
+      k.target = this.nearestHostile(k, seek, k.merc ? (o) => o.kind !== 'boss' : null);
+      if (!k.target && (k.merc || anchor !== bar)) {
+        // attack enemy buildings nearby
+        const R = k.merc ? 900 : 330;
+        let best = null, bd = R * R;
+        for (const st of this.sgrid.query(k.x, k.y, R)) {
+          if (st.k !== 'b' || st.team === k.team) continue;
+          const dd = dist2(k, st);
+          if (dd < bd) { bd = dd; best = st; }
         }
         k.target = best;
       }
     }
     const t = k.target;
+    const speed = k.speed || S.KNIGHT.speed;
     if (t) {
       const tr = t.k === 'b' ? t.hs : t.r;
       const dist = Math.sqrt(dist2(k, t));
       k.aim = Math.atan2(t.y - k.y, t.x - k.x);
-      this.steer(k, t.x, t.y, S.KNIGHT.speed, k.r + tr - 2);
+      this.steer(k, t.x, t.y, speed, k.r + tr - 2);
       if (dist < k.r + tr + 14 && k.cd <= 0) {
-        k.cd = S.KNIGHT.cd;
+        k.cd = k.cdMax || S.KNIGHT.cd;
         k.atk = (k.atk || 0) + 1;
         const src = this.srcOf(k);
         src.kb = 70;
@@ -1015,15 +1315,17 @@ class Game {
       }
     } else {
       const ang = (k.id * 1.7) % 6.28;
-      const tx = anchor.x + Math.cos(ang) * (anchor === bar ? 110 : 70);
-      const ty = anchor.y + Math.sin(ang) * (anchor === bar ? 110 : 70);
-      this.steer(k, tx, ty, S.KNIGHT.speed * (anchorD > 200 ? 1.15 : 0.8), 12);
+      const rr = anchor === bar ? (k.merc ? 160 : 110) : 70;
+      const tx = anchor.x + Math.cos(ang) * rr;
+      const ty = anchor.y + Math.sin(ang) * rr;
+      this.steer(k, tx, ty, speed * (anchorD > 200 ? 1.15 : 0.8), 12);
       if (k.vx || k.vy) k.aim = Math.atan2(k.vy, k.vx);
     }
     if (this.time - k.lastHurt > 5) k.hp = Math.min(k.maxHp, k.hp + k.maxHp * 0.04 * DT);
   }
 
   bossSummon(b, type, n) {
+    b.atkN = (b.atkN || 0) + 1;
     for (let i = 0; i < n && b.summons < 8; i++) {
       const a = rand(0, 6.28);
       const m = this.spawnMob(type, b.x + Math.cos(a) * (b.r + 40), b.y + Math.sin(a) * (b.r + 40), S.BIOME_TIER[b.def.biome], b.id);
@@ -1162,6 +1464,7 @@ class Game {
   }
 
   aoe(u, R, dmg, kb) {
+    if (u.kind === 'boss') u.atkN = (u.atkN || 0) + 1;
     const src = this.srcOf(u);
     src.kb = kb;
     for (const o of this.ugrid.query(u.x, u.y, R + 100)) {
@@ -1183,7 +1486,12 @@ class Game {
     for (const s of this.sgrid.query(p.x, p.y, p.splash)) {
       if (s.k === 'b' && s.team !== p.team && this.statics.has(s.id)) this.hurt(s, p.dmg * 0.5, src);
     }
-    this.fx.push(['boom', p.x, p.y, p.splash, p.type === 'magic' ? 1 : 0]);
+    if (p.holy) {
+      for (const o of this.ugrid.query(p.x, p.y, p.splash + 100)) {
+        if (o.team === p.team && !o.dead && o.kind !== 'boss' && Math.sqrt(dist2(p, o)) < p.splash + o.r) o.hp = Math.min(o.maxHp, o.hp + p.dmg * 0.5);
+      }
+    }
+    this.fx.push(['boom', p.x, p.y, p.splash, p.type === 'magic' ? 1 : p.holy ? 2 : 0]);
   }
 
   updateProjectiles() {
@@ -1198,6 +1506,13 @@ class Game {
           if (u.team === p.team || !this.targetable(u) || (p.hit && p.hit.has(u.id))) continue;
           const rr = u.r + p.r;
           if (dist2(p, u) < rr * rr) {
+            if (u.kind === 'hero' && u.bastionT > 0 && u.tier === 2) {
+              // bastion reflects the projectile back at its shooter
+              p.vx = -p.vx; p.vy = -p.vy; p.team = u.team; p.pid = u.pid; p.hero = false; p.unitId = u.id;
+              p.life = Math.max(p.life, 0.8); p.hit = null;
+              this.fx.push(['hit', p.x, p.y, 0, 0]);
+              break;
+            }
             if (p.splash) { dead = true; break; }
             if (p.slow) { u.slowT = 1.5; u.slowF = p.slow; }
             this.hurt(u, p.dmg, src);
@@ -1263,6 +1578,14 @@ class Game {
             for (const u of this.units.values()) if (u.kind === 'knight' && u.bar === b.id) n++;
             if (n < 1 + b.lvl) this.spawnKnight(b);
           }
+        } else if (b.type === 'warcamp') {
+          b.acc++;
+          if (b.acc >= 10) {
+            b.acc = 0;
+            let n = 0;
+            for (const u of this.units.values()) if (u.kind === 'knight' && u.bar === b.id) n++;
+            if (n < 2 + b.lvl) this.spawnKnight(b, 'merc');
+          }
         } else if (b.type === 'shrine') {
           const heal = def.heal * m;
           for (const u of this.ugrid.query(b.x, b.y, def.range)) {
@@ -1294,6 +1617,7 @@ class Game {
     const sendStatics = this.tickN % 6 === 0;
     const tm = Math.round(this.time * 1000);
     for (const c of this.clients) {
+      if (c.bot) continue;
       const prof = c.prof;
       const h = c.hero;
       const team = this.teamOf(prof);
@@ -1303,10 +1627,14 @@ class Game {
       const u = [];
       for (const e of this.units.values()) {
         if (e.dead || !inView(e.x, e.y, e.r)) continue;
+        if (e.stealthT > 0 && e.team !== team) continue;
         const row = [e.id, e.kind === 'hero' ? 'h' : e.kind === 'boss' ? 'B' : e.kind === 'knight' ? 'k' : 'm', e.type,
           Math.round(e.x), Math.round(e.y), Math.round(e.aim * 100) / 100, Math.round((e.hp / e.maxHp) * 100), this.relOf(team, e, prof.pid)];
-        if (e.kind === 'hero') row.push(e.atkN, e.invulnT > 0 ? 1 : 0, e.slowT > 0 ? 1 : 0, e.recallT > 0 ? 1 : 0, e.dashT > 0 ? 1 : 0);
-        else if (e.kind === 'boss') row.push(e.hp < e.maxHp * 0.4 ? 1 : 0, Math.round(e.hp), e.maxHp);
+        if (e.kind === 'hero') {
+          row.push(e.atkN, e.invulnT > 0 ? 1 : 0, e.slowT > 0 ? 1 : 0, e.recallT > 0 ? 1 : 0, e.dashT > 0 ? 1 : 0, e.tier,
+            (e.stealthT > 0 ? 1 : 0) | (e.bastionT > 0 ? 2 : 0) | (e.shieldT > 0 ? 4 : 0) | (e.rageT > 0 ? 8 : 0));
+        }
+        else if (e.kind === 'boss') row.push(e.hp < e.maxHp * 0.4 ? 1 : 0, Math.round(e.hp), e.maxHp, e.atkN || 0);
         else row.push(e.atk || 0, e.slowT > 0 ? 1 : 0, e.pid || 0, e.tier || 1);
         u.push(row);
       }
@@ -1322,11 +1650,11 @@ class Game {
         t: 's', tm, u, p: pr, fx,
         me: h ? {
           x: Math.round(h.x * 100) / 100, y: Math.round(h.y * 100) / 100, ack: c.ack, hp: Math.round(h.hp), mhp: h.maxHp,
-          spd: c.lastSpeed || h.stats.speed, cd: Math.max(0, h.acd), cdm: S.CLASSES[h.type].ability.cd, dead: h.dead ? 1 : 0,
+          spd: c.lastSpeed || h.stats.speed, cd: Math.max(0, h.acd), cdm: S.abilityCd(h.cls, h.sub, prof.lvl), dead: h.dead ? 1 : 0,
           rc: h.recallT > 0 ? h.recallT : 0,
         } : null,
         pf: {
-          lvl: prof.lvl, xp: Math.floor(prof.xp), xpn: S.xpFor(prof.lvl), pts: prof.pts, st: prof.st, cls: prof.cls,
+          lvl: prof.lvl, xp: Math.floor(prof.xp), xpn: S.xpFor(prof.lvl), pts: prof.pts, st: prof.st, cls: prof.cls, sub: prof.sub || 0,
           res: [Math.floor(prof.res.wood), Math.floor(prof.res.stone), Math.floor(prof.res.gold)], cap: S.resCap(th ? th.lvl : 0),
           glory: prof.glory, thLvl: prof.thLvl, th: th ? [th.x, th.y, th.lvl, th.id] : 0,
         },
@@ -1353,7 +1681,7 @@ class Game {
     const heroes = [];
     for (const c of this.clients) {
       const p = c.prof;
-      names[p.pid] = [p.name, p.clan, p.lvl, p.cls];
+      names[p.pid] = [p.name, p.clan, p.lvl, p.cls, p.sub || 0];
     }
     // include owners of buildings (maybe offline) so their bases are labelled
     const ths = [];
@@ -1366,12 +1694,15 @@ class Game {
     for (const c of this.clients) if (c.hero && !c.hero.dead) heroes.push([c.pid, Math.round(c.hero.x), Math.round(c.hero.y), c.hero.team]);
     const lb = [...this.profiles.values()].sort((a, b) => b.glory - a.glory).slice(0, 10)
       .map((p) => [p.name, p.clan, p.lvl, p.glory, p.online ? 1 : 0, p.pid]);
-    const bosses = this.bosses.map((s) => [s.def.key, s.unit && !s.unit.dead ? 1 : 0, s.respawnAt ? Math.max(0, Math.round(s.respawnAt - this.time)) : 0,
+    const bosses = this.bosses.map((s) => [S.BOSSES.indexOf(s.def), s.unit && !s.unit.dead ? 1 : 0, s.respawnAt ? Math.max(0, Math.round(s.respawnAt - this.time)) : 0,
       s.unit && !s.unit.dead ? Math.round((s.unit.hp / s.unit.maxHp) * 100) : 0]);
+    let bots = 0;
+    for (const c of this.clients) if (c.bot) bots++;
     for (const c of this.clients) {
+      if (c.bot) continue;
       const team = this.teamOf(c.prof);
       c.send({
-        t: 'info', names, lb, bosses, online: this.clients.size,
+        t: 'info', names, lb, bosses, online: this.clients.size - bots, bots,
         ths: ths.map((t) => [t[0], t[1], t[2], t[0] === c.pid ? 0 : t[3] === team ? 1 : 2, t[4], t[5]]),
         allies: heroes.filter((h) => h[3] === team && h[0] !== c.pid).map((h) => [h[1], h[2]]),
       });
