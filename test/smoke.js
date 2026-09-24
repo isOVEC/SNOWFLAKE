@@ -287,3 +287,31 @@ function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   assert.ok(c.prof.res.food > food0, 'cow gives food');
   console.log(`farm ok: ${peasants.length} peasants, cows ${g.cowCount}`);
 }
+
+// druid calls living trees; a second tab with the same token takes over and the old one is told why
+{
+  const g = new Game({ camps: 0 });
+  g.init(null);
+  const mk = (token) => {
+    const c = { ws: { close() { c.closed = true; } }, got: [], sendRaw(s) { this.got.push(JSON.parse(s)); }, send(o) { this.got.push(o); } };
+    g.onMessage(c, { t: 'join', name: 'друид', cls: 'mage', token });
+    return c;
+  };
+  const d = mk();
+  d.prof.xp = 9000; g.giveXp(d.prof, 1);
+  g.onMessage(d, { t: 'evolve', sub: 'druid' });
+  assert.strictEqual(d.prof.sub, 'druid');
+  d.hero.acd = 0;
+  g.onMessage(d, { t: 'i', s: 1, mx: 0, my: 0, a: 0, f: 0, ab: 1 });
+  g.tick();
+  const ents = () => [...g.units.values()].filter((u) => u.type === 'ent' && u.pid === d.pid).length;
+  assert.strictEqual(ents(), 2, 'druid summons two ents');
+  d.hero.acd = 0;
+  g.onMessage(d, { t: 'i', s: 2, mx: 0, my: 0, a: 0, f: 0, ab: 1 });
+  g.tick();
+  assert.strictEqual(ents(), 2, 'a new call replaces the old grove');
+  const tab2 = mk(d.prof.token);
+  assert.ok(d.got.some((m) => m.t === 'kicked') && d.closed, 'old tab is told it was replaced');
+  assert.strictEqual(tab2.pid, d.pid);
+  console.log('druid ents & tab takeover ok');
+}

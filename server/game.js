@@ -254,6 +254,7 @@ class Game {
     // kick an older connection of the same profile
     for (const c of this.clients) {
       if (c !== client && c.pid === prof.pid) {
+        c.send({ t: 'kicked' });
         this.leave(c);
         try { c.ws.close(); } catch (e) { /* ignore */ }
       }
@@ -374,7 +375,8 @@ class Game {
       case 'build': this.tryBuild(client, String(msg.type), +msg.x, +msg.y); break;
       case 'evolve': {
         const d = S.subOf(prof.cls, String(msg.sub));
-        if (!d || prof.sub || prof.lvl < S.EVOLVE_LVL) return;
+        if (!d || prof.sub) return;
+        if (prof.lvl < S.EVOLVE_LVL) { client.events.push({ k: 'msg', m: `Эволюция доступна с ${S.EVOLVE_LVL} уровня` }); return; }
         prof.sub = String(msg.sub);
         if (h && !h.dead) {
           this.refreshHeroStats(h);
@@ -1049,7 +1051,11 @@ class Game {
         }
         this.heroAoe(h, R, d.ability.dmg * mul, 0, 'roots');
         this.healAllies(h, R, 0.25);
-        if (t2) for (let i = 0; i < 2; i++) this.spawnPet(h, 'ent', 15);
+        // living trees rise from the ground; a new call replaces the old grove
+        for (const u of this.units.values()) {
+          if (u.pet && u.pid === h.pid && u.type === 'ent') { this.units.delete(u.id); this.fx.push(['death', u.x, u.y, 1]); }
+        }
+        for (let i = 0; i < (t2 ? 3 : 2); i++) this.spawnPet(h, 'ent', t2 ? 30 : 20);
         break;
       }
       case 'holy': {

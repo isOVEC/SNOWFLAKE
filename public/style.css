@@ -160,9 +160,10 @@ input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(255, 207, 92
 .vol input { width: 110px; vertical-align: middle; padding: 0; }
 
 /* class evolution */
-#evolve { position: absolute; top: 108px; left: 50%; transform: translateX(-50%); padding: 10px 12px 12px; width: min(780px, 92vw); text-align: center; }
+#evolve { position: absolute; top: 108px; left: 50%; transform: translateX(-50%); padding: 10px 12px 12px; width: min(780px, 92vw); text-align: center; z-index: 5; }
 .evo-title { font-weight: 800; letter-spacing: 2px; color: var(--gold); text-transform: uppercase; font-size: 13px; margin: 0 0 8px; }
 #evolve-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.evo-key { float: left; width: 22px; height: 22px; line-height: 22px; border-radius: 6px; background: var(--gold); color: #2a1d10; font-weight: 800; font-size: 13px; }
 .evo { cursor: pointer; padding: 8px 8px 10px; border-radius: 12px; background: rgba(0, 0, 0, 0.3); border: 2px solid transparent; font-size: 12px; line-height: 1.3; transition: 0.12s; }
 .evo:hover { border-color: var(--gold); background: rgba(255, 207, 92, 0.08); }
 .evo-img { display: block; margin: 0 auto 2px; height: 72px; }

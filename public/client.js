@@ -25,8 +25,36 @@ window.addEventListener('resize', resize);
 let ws = null;
 let myId = 0;
 let joined = false;
-let token = null;
-try { token = localStorage.getItem('ef_token'); } catch (e) { /* ignore */ }
+// every open tab plays its own hero: tabs share a pool of saved tokens and each one claims a free token
+const TAB_ID = Math.random().toString(36).slice(2);
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+function lsJson(k, def) { try { return JSON.parse(lsGet(k)) || def; } catch (e) { return def; } }
+function tokenBusy(t) { const l = lsJson('ef_lock_' + t, null); return !!(l && l.id !== TAB_ID && Date.now() - l.t < 6000); }
+function claimToken() { if (token) lsSet('ef_lock_' + token, JSON.stringify({ id: TAB_ID, t: Date.now() })); }
+function pickToken() {
+  const pool = lsJson('ef_tokens', []);
+  const legacy = lsGet('ef_token');
+  if (legacy && !pool.includes(legacy)) { pool.unshift(legacy); lsSet('ef_tokens', JSON.stringify(pool)); }
+  let mine = null;
+  try { mine = sessionStorage.getItem('ef_token'); } catch (e) { /* ignore */ }
+  if (mine && !tokenBusy(mine)) return mine;
+  return pool.find((t) => !tokenBusy(t)) || null;
+}
+function rememberToken(t, name, cls) {
+  const pool = lsJson('ef_tokens', []);
+  if (!pool.includes(t)) { pool.push(t); lsSet('ef_tokens', JSON.stringify(pool.slice(-12))); }
+  try { sessionStorage.setItem('ef_token', t); } catch (e) { /* ignore */ }
+  const names = lsJson('ef_names', {});
+  names[t] = { n: name, c: cls }; lsSet('ef_names', JSON.stringify(names));
+}
+let token = pickToken();
+claimToken();
+setInterval(claimToken, 2000);
+window.addEventListener('pagehide', () => {
+  const l = token && lsJson('ef_lock_' + token, null);
+  if (l && l.id === TAB_ID) try { localStorage.removeItem('ef_lock_' + token); } catch (e) { /* ignore */ }
+});
 let selCls = 'warrior';
 const snaps = [];
 let timeOffset = null;
@@ -408,13 +436,14 @@ mmBg.width = mmBg.height = 200;
 })();
 
 // =================================================================== network
+let kickedMsg = '';
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}`);
   $('conn').textContent = 'Подключение к миру…';
   $('play').disabled = true;
   ws.onopen = () => {
-    $('conn').textContent = 'Мир ждёт тебя';
+    $('conn').textContent = kickedMsg || 'Мир ждёт тебя';
     $('play').disabled = false;
     if (joined) join();
   };
@@ -437,6 +466,8 @@ function join() {
   const name = $('name').value.trim() || 'Странник';
   const clan = $('clan').value.trim();
   try { localStorage.setItem('ef_name', name); localStorage.setItem('ef_clan', clan); localStorage.setItem('ef_cls', selCls); } catch (e) { /* ignore */ }
+  // another tab grabbed our hero in the meantime: take a different one
+  if (!token || tokenBusy(token)) { token = pickToken(); claimToken(); }
   send({ t: 'join', name, clan, cls: selCls, token });
 }
 
@@ -445,7 +476,8 @@ function onMsg(m) {
     case 'welcome':
       myId = m.id;
       token = m.token;
-      try { localStorage.setItem('ef_token', token); } catch (e) { /* ignore */ }
+      claimToken();
+      rememberToken(token, $('name').value.trim(), selCls);
       joined = true;
       dead = false;
       pending = [];
@@ -455,6 +487,16 @@ function onMsg(m) {
       resize();
       break;
     case 's': onSnap(m); break;
+    case 'kicked':
+      // the same hero was opened somewhere else: give it up and go back to the menu
+      joined = false;
+      token = null;
+      $('hud').classList.add('hidden');
+      $('death').classList.add('hidden');
+      $('menu').classList.remove('hidden');
+      kickedMsg = 'Этот герой открыт в другой вкладке — нажми «В бой», чтобы играть другим героем';
+      $('conn').textContent = kickedMsg;
+      break;
     case 'info':
       info = m;
       renderLeaderboard();
@@ -678,6 +720,10 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     const i = +fk[1] - 1;
     if (i >= 0 && i < S.BUILD_ORDER.length) selectBuild(S.BUILD_ORDER[i]);
+  }
+  if (e.code.startsWith('Digit') && !$('evolve').classList.contains('hidden')) {
+    const k = evoChoices()[+e.code.slice(5) - 7];
+    if (k) { evolve(k); return; }
   }
   if (e.code.startsWith('Digit')) {
     const i = +e.code.slice(5) - 1;
@@ -2104,16 +2150,55 @@ function drawAlly(x, y, type, aim, rel, anim, flash, t, moving, id, flags) {
     ctx.fillStyle = '#5a3820'; ctx.beginPath(); ctx.arc(r * 0.35, 0, r * 0.3, -1.2, 1.2); ctx.fill();
     ctx.restore();
   } else if (type === 'ent') {
-    const sway = Math.sin(t * 3 + id) * 0.1;
+    // a living tree: root legs, branch arms, a leafy crown and glowing eyes
+    const ph = t * 7 + id;
+    const walk = moving ? Math.sin(ph) : 0;
+    const hit = anim < 0.5 ? Math.sin((anim / 0.5) * Math.PI) : 0;
     ctx.save(); ctx.translate(x, y); ctx.rotate(aim);
-    ctx.strokeStyle = '#6b4428'; ctx.lineWidth = 5; ctx.lineCap = 'round';
-    for (const sd of [-1, 1]) { ctx.beginPath(); ctx.moveTo(0, sd * r * 0.5); ctx.quadraticCurveTo(r * 0.7, sd * (r + 6), r * 1.2, sd * (r * 0.5 + sway * 20)); ctx.stroke(); }
+    ctx.lineCap = 'round';
+    // root legs
+    for (const sd of [-1, 1]) for (let k = 0; k < 2; k++) {
+      const sw = walk * (k ? -1 : 1) * sd * 6;
+      const bx = (k ? -0.35 : 0.2) * r, by = sd * r * 0.45;
+      ctx.strokeStyle = '#4a2e18'; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.quadraticCurveTo(bx + sw, by + sd * r * 0.4, bx + sw * 1.4 - 4, by + sd * r * 0.62); ctx.stroke();
+      ctx.strokeStyle = '#6b4428'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.quadraticCurveTo(bx + sw, by + sd * r * 0.4, bx + sw * 1.4 - 4, by + sd * r * 0.62); ctx.stroke();
+    }
+    // branch arms swinging on attack
+    for (const sd of [-1, 1]) {
+      const reach = r * (1.05 + hit * 0.45), spread = sd * (r * 0.75 - hit * r * 0.35);
+      ctx.strokeStyle = '#4a2e18'; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(0, sd * r * 0.5); ctx.quadraticCurveTo(r * 0.5, sd * r * 0.95, reach, spread); ctx.stroke();
+      ctx.strokeStyle = '#7b5234'; ctx.lineWidth = 3.5; ctx.stroke();
+      ctx.strokeStyle = '#5a3a22'; ctx.lineWidth = 2.5;
+      for (const f of [-0.5, 0, 0.5]) { ctx.beginPath(); ctx.moveTo(reach, spread); ctx.lineTo(reach + Math.cos(f) * 9, spread + Math.sin(f) * 9 + sd * 2); ctx.stroke(); }
+      circle(r * 0.62, sd * r * 0.88, 4.5, '#5fa84e', '#2e6a30', 1.5);
+    }
     ctx.lineCap = 'butt';
-    circle(0, 0, r * 0.8, '#7b5234', '#4a2e18', 3);
-    for (let i = 0; i < 7; i++) { const a = (i / 7) * TAU; circle(Math.cos(a) * r * 0.7, Math.sin(a) * r * 0.7, r * 0.34, i % 2 ? '#4f9a47' : '#68b058', '#2e6a30', 2); }
-    circle(r * 0.3, -r * 0.2, 2.5, '#c8ff7a'); circle(r * 0.3, r * 0.2, 2.5, '#c8ff7a');
+    // trunk with bark
+    circle(0, 0, r * 0.72, '#7b5234', '#3e2614', 3);
+    ctx.strokeStyle = 'rgba(40,22,10,0.55)'; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 6; k++) { const a = (k / 6) * TAU + 0.3; ctx.beginPath(); ctx.arc(0, 0, r * (0.35 + (k % 3) * 0.1), a, a + 0.9); ctx.stroke(); }
+    // face at the front: glowing eyes and a bark mouth
+    glow(r * 0.45, 0, 14, 'rgba(190,255,120,A)', 0.45);
+    circle(r * 0.5, -r * 0.2, 3, '#d8ff8a', '#3a5a1a', 1); circle(r * 0.5, r * 0.2, 3, '#d8ff8a', '#3a5a1a', 1);
+    ctx.strokeStyle = '#2a180c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(r * 0.34, 0, 5, -0.9, 0.9); ctx.stroke();
+    // leafy crown shifted back so the face stays visible
+    const cx = -r * 0.32, sway = Math.sin(t * 2 + id) * 1.5;
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * TAU + 0.4;
+      const lit = Math.cos(a + aim + 2.3);
+      circle(cx + Math.cos(a) * r * 0.5 + sway, Math.sin(a) * r * 0.5, r * 0.42, lit > 0.3 ? '#6cba5c' : lit < -0.3 ? '#3e7e36' : '#52a046', '#24561f', 2);
+    }
+    circle(cx + sway, 0, r * 0.5, '#58a84a');
+    circle(cx - r * 0.12 + sway, -r * 0.12, r * 0.24, '#7cc86a');
+    ctx.fillStyle = 'rgba(230,255,190,0.5)';
+    for (let k = 0; k < 6; k++) { const a = S.hash2(id, k, 3) * TAU, d = S.hash2(id, k, 4) * r * 0.6; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * d + sway, Math.sin(a) * d, 1.5, 0, TAU); ctx.fill(); }
+    // blossoms in the owner's colour
+    for (let k = 0; k < 3; k++) { const a = k * 2.1 + id; circle(cx + Math.cos(a) * r * 0.55 + sway, Math.sin(a) * r * 0.55, 3, col, '#ffffff', 1); }
     ctx.restore();
-    circle(x, y + r * 0.9, 3, col);
+    if (moving && !iconMode && Math.random() < 0.12) particles.push({ x: x + (Math.random() - 0.5) * r, y: y + r * 0.5, vx: 0, vy: 20, t: 0, life: 0.8, c: '#6cba5c', s: 3 });
   }
   if (flash) { ctx.globalAlpha = flash * 0.7; circle(x, y, r, '#ffffff'); ctx.globalAlpha = 1; }
 }
@@ -3199,7 +3284,13 @@ function updateHud() {
 }
 $('recall').onclick = () => send({ t: 'recall' });
 
-// class evolution at level 10
+// class evolution at level 10: click a card or press 7 / 8 / 9
+function evoChoices() { return pf ? Object.keys(S.SUBCLASSES).filter((k) => S.SUBCLASSES[k].base === pf.cls) : []; }
+function evolve(key) {
+  if (!pf || pf.sub || pf.lvl < S.EVOLVE_LVL) return;
+  send({ t: 'evolve', sub: key });
+  AUDIO.play('click');
+}
 function updateEvolve() {
   const box = $('evolve');
   const show = pf && pf.lvl >= S.EVOLVE_LVL && !pf.sub && !dead;
@@ -3209,13 +3300,13 @@ function updateEvolve() {
   box.dataset.cls = pf.cls;
   const cards = $('evolve-cards');
   cards.innerHTML = '';
-  for (const [key, d] of Object.entries(S.SUBCLASSES)) {
-    if (d.base !== pf.cls) continue;
+  evoChoices().forEach((key, i) => {
+    const d = S.SUBCLASSES[key];
     const c = el('div', 'evo');
-    c.innerHTML = `<img class="evo-img" src="${heroURL(key)}" alt=""><b>${d.name}</b><span>${d.desc}</span><em>${ico('glory')} 20 ур.: ${d.desc20}</em>`;
-    c.onclick = () => send({ t: 'evolve', sub: key });
+    c.innerHTML = `<span class="evo-key">${7 + i}</span><img class="evo-img" src="${heroURL(key)}" alt=""><b>${d.name}</b><span>${d.desc}</span><em>${ico('glory')} 20 ур.: ${d.desc20}</em>`;
+    c.addEventListener('pointerdown', (e) => { e.stopPropagation(); evolve(key); });
     cards.appendChild(c);
-  }
+  });
 }
 
 function renderLeaderboard() {
@@ -3388,9 +3479,11 @@ $('hint').onclick = toggleHelp;
 
 // =================================================================== boot
 try {
-  $('name').value = localStorage.getItem('ef_name') || '';
+  // this tab's hero remembers its own name and class
+  const hint = token ? lsJson('ef_names', {})[token] : null;
+  $('name').value = (hint ? hint.n : token ? localStorage.getItem('ef_name') : '') || '';
   $('clan').value = localStorage.getItem('ef_clan') || '';
-  selCls = localStorage.getItem('ef_cls') || 'warrior';
+  selCls = (hint && hint.c) || localStorage.getItem('ef_cls') || 'warrior';
   if (!S.CLASSES[selCls]) selCls = 'warrior';
 } catch (e) { /* ignore */ }
 buildClassPickers();
