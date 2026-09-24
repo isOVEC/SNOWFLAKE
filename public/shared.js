@@ -55,10 +55,14 @@
     hydra: { name: 'Болотная Гидра', r: 75, hp: 7500, biome: B.SWAMP, xp: 2200, loot: { wood: 400, stone: 200, gold: 450 } },
     colossus: { name: 'Каменный Колосс', r: 85, hp: 9000, biome: B.MOUNTAIN, xp: 2600, loot: { wood: 100, stone: 700, gold: 400 } },
     dragon: { name: 'Огненный Дракон', r: 90, hp: 12000, biome: B.VOLCANO, xp: 3500, loot: { wood: 300, stone: 300, gold: 1000 } },
+    spiderqueen: { name: 'Королева пауков', r: 72, hp: 8000, biome: B.FOREST, xp: 2400, loot: { wood: 500, stone: 200, gold: 500 } },
+    frostgiant: { name: 'Ледяной великан', r: 88, hp: 10000, biome: B.SNOW, xp: 3000, loot: { wood: 200, stone: 600, gold: 600 } },
+    minotaur: { name: 'Минотавр', r: 70, hp: 8500, biome: B.MOUNTAIN, xp: 2600, loot: { wood: 300, stone: 400, gold: 600 } },
   };
   const LAIRS = [
     ['treant', 0.34, 0.36], ['lich', 0.5, 0.07], ['hydra', 0.1, 0.6], ['colossus', 0.79, 0.33], ['dragon', 0.84, 0.84],
     ['treant', 0.66, 0.56], ['lich', 0.18, 0.1], ['hydra', 0.2, 0.74], ['colossus', 0.38, 0.86], ['dragon', 0.93, 0.7],
+    ['spiderqueen', 0.27, 0.5], ['frostgiant', 0.75, 0.1], ['minotaur', 0.6, 0.3],
   ];
   S.BOSSES = LAIRS.map(([key, fx, fy]) => Object.assign({ key, x: Math.round(fx * S.W), y: Math.round(fy * S.H) }, BOSS_TYPES[key]));
   S.SPAWN = { x: Math.round(S.W * 0.5), y: Math.round(S.H * 0.52) };
@@ -218,6 +222,7 @@
     mine: { name: 'Золотой рудник', size: 76, hp: 750, cost: { wood: 90, stone: 90 }, income: { gold: 1 }, desc: 'Даёт золото.' },
     barracks: { name: 'Казарма', size: 84, hp: 1150, cost: { wood: 150, stone: 100, gold: 80 }, desc: 'Нанимает рыцарей. Они ходят за вами в набеги.' },
     shrine: { name: 'Святилище', size: 60, hp: 650, cost: { stone: 120, gold: 120 }, heal: 12, range: 280, desc: 'Лечит вас, союзников и здания рядом.' },
+    npc_hall: { name: 'Дом вождя', size: 110, hp: 5000, cost: { wood: 300, stone: 300, gold: 250 }, desc: 'Сердце вражеского поселения. Снесите его ради богатой добычи.' },
     warcamp: { name: 'Лагерь наёмников', size: 80, hp: 1000, cost: { wood: 180, stone: 120, gold: 140 }, desc: 'Нанимает наёмников: они сами бегут бить ближайших врагов.' },
   };
   S.BUILD_ORDER = ['townhall', 'wall', 'tower', 'magetower', 'sawmill', 'quarry', 'mine', 'barracks', 'shrine', 'warcamp'];
@@ -264,15 +269,30 @@
     skeleton: { name: 'Скелет', hp: 95, r: 19, speed: 150, dmg: 14, cd: 0.9, xp: 24, gold: 6, aggro: 400 },
     imp: { name: 'Бес', hp: 80, r: 17, speed: 175, dmg: 15, cd: 1.4, xp: 30, gold: 8, aggro: 460, ranged: { speed: 480, life: 1.1, type: 'imp' }, keep: 300 },
     golem: { name: 'Голем', hp: 330, r: 30, speed: 85, dmg: 26, cd: 1.4, xp: 45, gold: 12, aggro: 330 },
+    boar: { name: 'Кабан', hp: 120, r: 22, speed: 170, dmg: 16, cd: 1.2, xp: 20, gold: 5, aggro: 360, charge: { speed: 650, dur: 0.45, cd: 4, dmg: 22 } },
+    spider: { name: 'Гигантский паук', hp: 70, r: 18, speed: 220, dmg: 9, cd: 0.8, xp: 18, gold: 4, aggro: 420, ranged: { speed: 420, life: 0.9, type: 'web', slow: 0.5 }, keep: 220 },
+    troll: { name: 'Тролль', hp: 480, r: 32, speed: 95, dmg: 30, cd: 1.5, xp: 55, gold: 14, aggro: 340, regen: 0.03 },
+    yeti: { name: 'Йети', hp: 380, r: 30, speed: 120, dmg: 24, cd: 1.3, xp: 50, gold: 12, aggro: 380, throw: { speed: 380, life: 1.5, type: 'snowball', slow: 0.5, cd: 3.5 } },
+    salamander: { name: 'Саламандра', hp: 110, r: 20, speed: 160, dmg: 17, cd: 1.5, xp: 34, gold: 9, aggro: 440, ranged: { speed: 500, life: 1.0, type: 'imp' }, keep: 260 },
+    wraith: { name: 'Призрак', hp: 90, r: 19, speed: 190, dmg: 14, cd: 1.2, xp: 32, gold: 8, aggro: 460, ranged: { speed: 380, life: 1.5, type: 'bolt' }, keep: 300 },
   };
   S.BIOME_MOBS = [
-    ['wolf', 'goblin', 'wolf'],
-    ['wolf', 'wolf', 'goblin'],
-    ['golem', 'goblin'],
-    ['skeleton', 'skeleton', 'wolf'],
-    ['slime', 'slime', 'goblin'],
-    ['imp', 'golem', 'imp'],
+    ['wolf', 'goblin', 'wolf', 'boar'],
+    ['wolf', 'wolf', 'goblin', 'spider', 'boar'],
+    ['golem', 'goblin', 'troll'],
+    ['skeleton', 'skeleton', 'wolf', 'yeti', 'wraith'],
+    ['slime', 'slime', 'goblin', 'spider', 'wraith'],
+    ['imp', 'golem', 'imp', 'salamander'],
   ];
+
+  // hostile NPC settlements: a chieftain hall, towers, palisade and guards; they rebuild after being razed
+  S.FACTIONS = [
+    { key: 'goblin', name: 'Гоблинский форт', biomes: [B.MEADOW, B.FOREST, B.SWAMP], towers: 2, guards: 4, tier: 1 },
+    { key: 'bandit', name: 'Лагерь разбойников', biomes: [B.MOUNTAIN, B.MEADOW], towers: 3, guards: 5, tier: 1.4 },
+    { key: 'orc', name: 'Орочья крепость', biomes: [B.VOLCANO, B.SNOW], towers: 4, guards: 6, tier: 1.9 },
+  ];
+  S.CAMP_COUNT = 9;
+  S.CAMP_RESPAWN = 300;
   S.KNIGHT = { name: 'Рыцарь', hp: 110, r: 17, speed: 215, dmg: 11, cd: 0.8 };
   // other allied units that share the knight AI
   S.ALLY_UNITS = {

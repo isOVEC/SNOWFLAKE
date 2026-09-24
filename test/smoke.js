@@ -3,7 +3,7 @@ const assert = require('assert');
 const Game = require('../server/game');
 const S = require('../public/shared.js');
 
-const game = new Game();
+const game = new Game({ camps: 0 });
 game.init(null);
 
 function bot(name, clan, cls) {
@@ -80,7 +80,7 @@ assert.ok(Array.isArray(snap.u) && snap.pf && typeof snap.pf.lvl === 'number');
 
 // Persistence round-trip
 const data = JSON.parse(JSON.stringify(game.serialize()));
-const g2 = new Game();
+const g2 = new Game({ camps: 0 });
 g2.init(data);
 assert.strictEqual(g2.profiles.size, game.profiles.size);
 let nb = 0;
@@ -108,7 +108,7 @@ function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
 
 // every advanced class: evolve at 10, empower at 20, fight for a while
 {
-  const g = new Game();
+  const g = new Game({ camps: 0 });
   g.init(null);
   const mk = (name, cls) => {
     const c = { ws: null, sent: [], sendRaw(s) { this.sent.push(s); if (this.sent.length > 5) this.sent.shift(); }, send(o) { this.sendRaw(JSON.stringify(o)); } };
@@ -193,4 +193,50 @@ function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   const g2 = new Game({ bots: 6 });
   g2.init(data);
   assert.deepStrictEqual(g2.botMgr.bots.map((b) => b.c.prof.pid).sort(), profs.map((p) => p.pid).sort(), 'bots keep their profiles after restart');
+}
+
+// NPC settlements, new monsters and bosses
+{
+  const g = new Game();
+  g.init(null);
+  assert.ok(g.camps.length >= 5, 'camps generated: ' + g.camps.length);
+  const halls = [...g.statics.values()].filter((s) => s.type === 'npc_hall');
+  assert.strictEqual(halls.length, g.camps.length);
+  const guards = [...g.units.values()].filter((u) => u.kind === 'knight' && u.team === 'mob').length;
+  assert.ok(guards >= g.camps.length * 4, 'camp guards spawned');
+  assert.ok(!JSON.stringify(g.serialize()).includes('npc_hall'), 'NPC camps are not saved');
+  const mk = (name, cls) => {
+    const c = { ws: null, sent: [], sendRaw() {}, send() {} };
+    g.onMessage(c, { t: 'join', name, cls });
+    return c;
+  };
+  const raider = mk('raider', 'mage');
+  g.onMessage(raider, { t: 'build', type: 'npc_hall', x: 100, y: 100 });
+  assert.ok(![...g.statics.values()].some((s) => s.type === 'npc_hall' && s.pid), 'players cannot build NPC halls');
+  // raze a camp
+  const camp = g.camps[0];
+  const hall = g.statics.get(camp.hallId);
+  const before = raider.prof.res.gold;
+  g.hurt(hall, 1e9, { pid: raider.pid, team: raider.hero.team, x: hall.x, y: hall.y + 200 });
+  assert.ok(!g.statics.has(hall.id) && camp.respawnAt > 0, 'hall destroyed, camp scheduled to respawn');
+  assert.ok(raider.prof.res.gold > before, 'hall loot paid');
+  camp.respawnAt = g.time + 0.01;
+  for (let i = 0; i < 20; i++) g.tick();
+  assert.ok(g.statics.has(camp.hallId) && !camp.respawnAt, 'camp rebuilt');
+  // new monsters & bosses fight a hero without crashing
+  const bots = ['boar', 'spider', 'troll', 'yeti', 'salamander', 'wraith'];
+  for (const [i, type] of bots.entries()) g.spawnMob(type, 3000 + i * 40, 3000, 1.5);
+  for (const key of ['spiderqueen', 'frostgiant', 'minotaur']) {
+    const b = [...g.units.values()].find((u) => u.kind === 'boss' && u.type === key);
+    assert.ok(b, key + ' spawned');
+    const v = mk('v' + key, 'warrior');
+    v.hero.x = b.x - 300; v.hero.y = b.y; v.hero.invulnT = 0;
+  }
+  raider.hero.x = 3000; raider.hero.y = 3150; raider.hero.invulnT = 0;
+  let s = 0;
+  for (let i = 0; i < 30 * 20; i++) {
+    g.onMessage(raider, { t: 'i', s: ++s, mx: 0, my: 0, a: -Math.PI / 2, f: 1, ab: 0 });
+    g.tick();
+  }
+  console.log('camps, new monsters and bosses ok:', g.camps.length, 'camps');
 }

@@ -82,6 +82,8 @@ class Game {
     if (saved) this.load(saved);
     this.genNodes();
     for (const def of S.BOSSES) this.spawnBoss(def);
+    this.camps = [];
+    this.genCamps();
     this.botMgr = new BotManager(this, this.opts.bots || 0);
     this.botMgr.start();
     for (let i = 0; i < S.MOB_CAP * 3 && this.mobCount < S.MOB_CAP; i++) this.spawnMobPack();
@@ -107,6 +109,59 @@ class Game {
         this.addNode(type, x, y);
       }
     }
+  }
+
+  genCamps() {
+    const R = Math.random;
+    const want = this.opts.camps !== undefined ? this.opts.camps : S.CAMP_COUNT;
+    for (let tries = 0; tries < 400 && this.camps.length < want; tries++) {
+      const x = 900 + R() * (S.W - 1800), y = 900 + R() * (S.H - 1800);
+      if (Math.hypot(x - S.SPAWN.x, y - S.SPAWN.y) < 3200) continue;
+      if (S.BOSSES.some((b) => Math.hypot(b.x - x, b.y - y) < 1700)) continue;
+      if (this.camps.some((c) => Math.hypot(c.x - x, c.y - y) < 3000)) continue;
+      let bad = false;
+      for (const s of this.statics.values()) if (s.k === 'b' && s.pid && Math.hypot(s.x - x, s.y - y) < 1300) { bad = true; break; }
+      if (bad) continue;
+      const biome = S.biomeAt(x, y);
+      const fi = S.FACTIONS.findIndex((f) => f.biomes.includes(biome));
+      if (fi < 0) continue;
+      const camp = { id: this.camps.length, fi, x: Math.round(x), y: Math.round(y), hallId: 0, respawnAt: 0 };
+      this.camps.push(camp);
+      this.buildCamp(camp);
+    }
+  }
+
+  buildCamp(camp) {
+    const f = S.FACTIONS[camp.fi];
+    // clear the ground and any leftovers of the previous camp
+    for (const s of [...this.statics.values()]) {
+      if ((s.k === 'n' && Math.hypot(s.x - camp.x, s.y - camp.y) < 420) || s.camp === camp.id) this.removeStatic(s);
+    }
+    const lvl = camp.fi + 1;
+    const add = (type, x, y) => {
+      const def = S.BUILDINGS[type];
+      const maxHp = Math.round(def.hp * S.lvlMul(lvl) * (type === 'npc_hall' ? f.tier : 1));
+      const b = {
+        id: newId(), k: 'b', type, x: Math.round(x), y: Math.round(y), hs: def.size / 2, r: def.size / 2, lvl, hp: maxHp, maxHp,
+        pid: 0, team: 'mob', camp: camp.id, faction: camp.fi, cd: rand(0, 1), lastHurt: -99, acc: 0, aim: 0,
+      };
+      this.statics.set(b.id, b);
+      this.sgrid.add(b);
+      return b;
+    };
+    const hall = add('npc_hall', camp.x, camp.y);
+    camp.hallId = hall.id;
+    for (let i = 0; i < f.towers; i++) {
+      const a = (i / f.towers) * Math.PI * 2 + 0.4;
+      add('tower', camp.x + Math.cos(a) * 190, camp.y + Math.sin(a) * 190);
+    }
+    const n = 30;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      if (Math.abs(Math.atan2(Math.sin(a - Math.PI / 2), Math.cos(a - Math.PI / 2))) < 0.3) continue; // gate
+      add('wall', camp.x + Math.cos(a) * 330, camp.y + Math.sin(a) * 330);
+    }
+    for (let i = 0; i < f.guards; i++) this.spawnKnight(hall, 'merc');
   }
 
   addNode(type, x, y) {
@@ -153,7 +208,7 @@ class Game {
     }
     const buildings = [];
     for (const s of this.statics.values()) {
-      if (s.k === 'b') buildings.push({ type: s.type, x: s.x, y: s.y, lvl: s.lvl, hp: Math.round(s.hp), pid: s.pid });
+      if (s.k === 'b' && s.pid) buildings.push({ type: s.type, x: s.x, y: s.y, lvl: s.lvl, hp: Math.round(s.hp), pid: s.pid });
     }
     return { nextId, profiles, buildings };
   }
@@ -337,6 +392,7 @@ class Game {
         if (isFinite(msg.x)) { h.x = +msg.x; h.y = +msg.y; }
         if (msg.res) for (const r of S.RES) prof.res[r] = 20000;
         if (msg.xp) this.giveXp(prof, +msg.xp);
+        if (msg.mob && own(S.MOBS, msg.mob)) { const m = this.spawnMob(msg.mob, h.x + rand(-250, 250), h.y - 250, 1); m.target = null; }
         break;
       case 'chat': {
         const m = String(msg.m || '').replace(/[<>]/g, '').trim().slice(0, 140);
@@ -370,6 +426,7 @@ class Game {
       if (th) return 'Ратуша уже есть';
       for (const s of this.statics.values()) {
         if (s.k === 'b' && s.type === 'townhall' && Math.hypot(s.x - x, s.y - y) < 1100) return 'Слишком близко к чужой ратуше';
+        if (s.k === 'b' && s.type === 'npc_hall' && Math.hypot(s.x - x, s.y - y) < 1200) return 'Слишком близко к вражескому поселению';
       }
       for (const b of S.BOSSES) if (Math.hypot(b.x - x, b.y - y) < 1000) return 'Слишком близко к логову босса';
       if (Math.hypot(x - S.SPAWN.x, y - S.SPAWN.y) < 450) return 'Нельзя строить на площади возрождения';
@@ -393,7 +450,7 @@ class Game {
 
   tryBuild(client, type, x, y) {
     const prof = client.prof;
-    const def = own(S.BUILDINGS, type) ? S.BUILDINGS[type] : null;
+    const def = S.BUILD_ORDER.includes(type) ? S.BUILDINGS[type] : null;
     const h = client.hero;
     if (!def || !isFinite(x) || !isFinite(y) || !h || h.dead) return;
     x = S.snap(type, x); y = S.snap(type, y);
@@ -523,14 +580,15 @@ class Game {
     const prof = this.profiles.get(bar.pid);
     type = type || 'knight';
     const k = S.ALLY_UNITS[type];
-    const m = S.lvlMul(bar.lvl);
+    const m = S.lvlMul(bar.lvl) * (bar.pid ? 1 : S.FACTIONS[bar.faction].tier);
     const a = Math.random() * 6.28;
     const u = {
       id: newId(), kind: 'knight', type, pid: bar.pid, team: bar.team, bar: bar.id, speed: k.speed, cdMax: k.cd,
-      merc: type === 'merc',
+      merc: type === 'merc' && !!bar.pid,
       x: bar.x + Math.cos(a) * (bar.hs + 25), y: bar.y + Math.sin(a) * (bar.hs + 25), r: k.r,
       hp: k.hp * m, maxHp: k.hp * m, dmg: k.dmg * m, cd: 0, aim: a, target: null,
-      slowT: 0, slowF: 1, kbx: 0, kby: 0, lastHurt: -99, name: prof ? prof.name : '',
+      slowT: 0, slowF: 1, kbx: 0, kby: 0, lastHurt: -99,
+      name: prof ? prof.name : bar.faction !== undefined ? 'стража: ' + S.FACTIONS[bar.faction].name : '',
     };
     this.units.set(u.id, u);
     return u;
@@ -714,6 +772,17 @@ class Game {
       for (const k in def.cost) this.giveRes(killer, k, def.cost[k] * b.lvl * 0.5);
       this.giveXp(killer, 15 + 10 * b.lvl * (b.type === 'wall' ? 0.3 : 1));
       if (b.type !== 'wall') killer.glory += 2 * b.lvl;
+    }
+    if (b.type === 'npc_hall') {
+      const camp = this.camps[b.camp];
+      if (camp) camp.respawnAt = this.time + S.CAMP_RESPAWN;
+      const f = S.FACTIONS[b.faction];
+      if (killer) {
+        for (const r of S.RES) this.giveRes(killer, r, 250 * f.tier);
+        this.giveXp(killer, 450 * f.tier);
+        killer.glory += Math.round(25 * f.tier);
+        this.feed(`🔥 ${this.dispName(killer)} разорил: ${f.name}!`, true);
+      }
     }
     if (b.type === 'townhall' && owner) {
       owner.thId = 0;
@@ -1020,6 +1089,13 @@ class Game {
           else this.addNode(r.type, r.x, r.y);
         }
       }
+      for (const camp of this.camps) {
+        if (camp.respawnAt && this.time >= camp.respawnAt) {
+          camp.respawnAt = 0;
+          this.buildCamp(camp);
+          this.feed(`${S.FACTIONS[camp.fi].name} снова обитаем`);
+        }
+      }
       for (const slot of this.bosses) {
         if (slot.respawnAt && this.time >= slot.respawnAt) {
           this.spawnBoss(slot.def);
@@ -1230,13 +1306,45 @@ class Game {
     if (t) {
       const dist = Math.sqrt(dist2(m, t));
       m.aim = Math.atan2(t.y - m.y, t.x - m.x);
+      if (d.regen) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * d.regen * DT);
+      // boar: charge in a straight line and ram
+      if (d.charge) {
+        m.chargeCd = (m.chargeCd || 0) - DT;
+        if (m.chargeT > 0) {
+          m.chargeT -= DT;
+          m.vx = m.cdx; m.vy = m.cdy;
+          if (!m.chargeHit && dist < m.r + t.r + 8) {
+            m.chargeHit = true;
+            const src = this.srcOf(m);
+            src.kb = 380;
+            this.hurt(t, d.charge.dmg * m.tier, src);
+            m.atk = (m.atk || 0) + 1;
+          }
+          return;
+        }
+        if (dist < 380 && dist > 90 && m.chargeCd <= 0) {
+          m.chargeCd = d.charge.cd; m.chargeT = d.charge.dur; m.chargeHit = false;
+          m.cdx = Math.cos(m.aim) * d.charge.speed; m.cdy = Math.sin(m.aim) * d.charge.speed;
+          this.fx.push(['dash', m.x, m.y, m.aim]);
+          return;
+        }
+      }
+      // yeti: lob a slowing snowball while closing in
+      if (d.throw) {
+        m.throwCd = (m.throwCd || rand(0, 2)) - DT;
+        if (m.throwCd <= 0 && dist > 160 && dist < 600) {
+          m.throwCd = d.throw.cd;
+          this.shoot(m, d.throw.type, m.x, m.y, m.aim, d.throw.speed, d.throw.life, d.dmg * 0.8 * m.tier, 13, { slow: d.throw.slow });
+          m.atk = (m.atk || 0) + 1;
+        }
+      }
       if (d.ranged) {
         if (dist > d.keep + 40) this.steer(m, t.x, t.y, d.speed);
         else if (dist < d.keep - 80) this.steer(m, m.x * 2 - t.x, m.y * 2 - t.y, d.speed * 0.8);
         else { m.vx *= 0.8; m.vy *= 0.8; }
         if (dist < d.keep + 200 && m.cd <= 0) {
           m.cd = d.cd;
-          this.shoot(m, d.ranged.type, m.x, m.y, m.aim + rand(-0.05, 0.05), d.ranged.speed, d.ranged.life, d.dmg * m.tier, 8);
+          this.shoot(m, d.ranged.type, m.x, m.y, m.aim + rand(-0.05, 0.05), d.ranged.speed, d.ranged.life, d.dmg * m.tier, 8, d.ranged.slow ? { slow: d.ranged.slow } : null);
         }
       } else {
         this.steer(m, t.x, t.y, d.speed, m.r + t.r - 2);
@@ -1433,6 +1541,8 @@ class Game {
           b.pt = 1.3 * cdm;
         }
       }
+    } else if (k === 'spiderqueen' || k === 'frostgiant' || k === 'minotaur') {
+      this.updateNewBoss(b, k, t, aim, dist, enraged, cdm);
     } else if (k === 'dragon') {
       if (b.dashT > 0) {
         b.dashT -= DT;
@@ -1460,6 +1570,61 @@ class Game {
         else if (b.phase === 3) { b.dashT = 0.55; b.dvx = Math.cos(aim) * 900; b.dvy = Math.sin(aim) * 900; this.fx.push(['dash', b.x, b.y, aim]); b.pt = 1.4 * cdm; }
         else { this.ring(b, 'fireball', 16, 330, 18, 14, rand(0, 1), 2); if (b.summons < 4) this.bossSummon(b, 'imp', 2); b.pt = 1.3 * cdm; }
       }
+    }
+  }
+
+  // shared boss dash: ram everything in the way; returns true while dashing
+  bossDash(b, dmg, kb) {
+    if (!(b.dashT > 0)) return false;
+    b.dashT -= DT;
+    b.vx = b.dvx; b.vy = b.dvy;
+    for (const u of this.ugrid.query(b.x, b.y, b.r + 60)) {
+      if (u.team !== b.team && this.targetable(u) && Math.sqrt(dist2(u, b)) < u.r + b.r) {
+        const src = this.srcOf(b);
+        src.kb = kb;
+        if ((u._dashHit || 0) < this.time) { u._dashHit = this.time + 0.6; this.hurt(u, dmg, src); }
+      }
+    }
+    if (b.dashT <= 0 && b.dashLand) { const [R, d2, k2] = b.dashLand; b.dashLand = null; this.aoe(b, R, d2, k2); }
+    return true;
+  }
+
+  updateNewBoss(b, k, t, aim, dist, enraged, cdm) {
+    if (k === 'spiderqueen') {
+      if (this.bossDash(b, 30, 300)) return;
+      this.steer(b, t.x, t.y, 95, 200);
+      if (b.pt <= 0) {
+        b.phase = (b.phase + 1) % 4;
+        if (b.phase === 0) { for (let i = -3; i <= 3; i++) this.shoot(b, 'web', b.x, b.y, aim + i * 0.15, 440, 1.6, 14, 12, { slow: 0.45 }); b.pt = 1.2 * cdm; }
+        else if (b.phase === 1) { if (b.summons < 6) this.bossSummon(b, 'spider', 3); b.pt = 1.0; }
+        else if (b.phase === 2) { this.ring(b, 'poison', 20, 300, 14, 11, rand(0, 1), 2.4); b.pt = 1.3 * cdm; }
+        else { b.dashT = 0.4; b.dvx = Math.cos(aim) * 820; b.dvy = Math.sin(aim) * 820; b.dashLand = [160, 30, 300]; this.fx.push(['dash', b.x, b.y, aim]); b.pt = 1.4 * cdm; }
+      }
+    } else if (k === 'frostgiant') {
+      this.steer(b, t.x, t.y, 70, b.r + t.r);
+      if (b.pt <= 0) {
+        b.phase = (b.phase + 1) % 3;
+        if (b.phase === 0) {
+          const n = enraged ? 1 : 0;
+          for (let i = -n; i <= n; i++) this.shoot(b, 'iceboulder', b.x, b.y, aim + i * 0.3, 400, 2.4, 42, 26, { splash: 100, slow: 0.4 });
+          b.pt = 1.6 * cdm;
+        } else if (b.phase === 1) { this.ring(b, 'shard', 26, 340, 16, 11, rand(0, 1), 2); b.pt = 1.3 * cdm; }
+        else {
+          this.aoe(b, 220, 32, 380);
+          for (const u of this.ugrid.query(b.x, b.y, 320)) if (u.team !== b.team && Math.sqrt(dist2(u, b)) < 280) { u.slowT = 2; u.slowF = 0.45; }
+          b.pt = 1.8 * cdm;
+        }
+      }
+    } else if (k === 'minotaur') {
+      if (this.bossDash(b, 50, 520)) return;
+      this.steer(b, t.x, t.y, 110, b.r + t.r);
+      if (b.pt <= 0) {
+        b.phase = (b.phase + 1) % 3;
+        if (b.phase === 0) { b.dashT = 0.7; b.dvx = Math.cos(aim) * 950; b.dvy = Math.sin(aim) * 950; b.dashLand = [170, 30, 350]; this.fx.push(['dash', b.x, b.y, aim]); b.pt = 1.6 * cdm; }
+        else if (b.phase === 1) { this.aoe(b, 190, 38, 300); b.spinT = 0.5; b.pt = 1.2 * cdm; }
+        else { this.ring(b, 'shock', 18, 380, 20, 13, 0, 1.8); if (enraged) this.ring(b, 'shock', 18, 300, 20, 13, 0.17, 1.8); b.pt = 1.4 * cdm; }
+      }
+      if (b.spinT > 0) { b.spinT -= DT; if (b.spinT <= 0) this.aoe(b, 190, 38, 300); }
     }
   }
 
@@ -1578,6 +1743,14 @@ class Game {
             for (const u of this.units.values()) if (u.kind === 'knight' && u.bar === b.id) n++;
             if (n < 1 + b.lvl) this.spawnKnight(b);
           }
+        } else if (b.type === 'npc_hall') {
+          b.acc++;
+          if (b.acc >= 12) {
+            b.acc = 0;
+            let n = 0;
+            for (const u of this.units.values()) if (u.kind === 'knight' && u.bar === b.id) n++;
+            if (n < S.FACTIONS[b.faction].guards) this.spawnKnight(b, 'merc');
+          }
         } else if (b.type === 'warcamp') {
           b.acc++;
           if (b.acc >= 10) {
@@ -1665,7 +1838,7 @@ class Game {
         for (const s of this.sgrid.query(cx, cy, Math.max(vw, vh) + 200)) {
           if (!inView(s.x, s.y, s.k === 'b' ? s.hs : s.r)) continue;
           if (s.k === 'n') st.push([s.id, 'n', s.type, Math.round(s.x), Math.round(s.y), Math.round(s.r), Math.round((s.hp / s.maxHp) * 100), s.biome, s.v]);
-          else st.push([s.id, 'b', s.type, s.x, s.y, s.lvl, Math.round((s.hp / s.maxHp) * 100), this.relOf(team, s, prof.pid), s.pid, Math.round(s.aim * 100) / 100]);
+          else st.push([s.id, 'b', s.type, s.x, s.y, s.lvl, Math.round((s.hp / s.maxHp) * 100), this.relOf(team, s, prof.pid), s.pid, Math.round(s.aim * 100) / 100, s.faction === undefined ? -1 : s.faction]);
         }
         msg.st = st;
         const counts = {};
@@ -1703,6 +1876,7 @@ class Game {
       const team = this.teamOf(c.prof);
       c.send({
         t: 'info', names, lb, bosses, online: this.clients.size - bots, bots,
+        camps: this.camps.map((cp) => [cp.x, cp.y, cp.respawnAt ? 0 : 1, cp.fi]),
         ths: ths.map((t) => [t[0], t[1], t[2], t[0] === c.pid ? 0 : t[3] === team ? 1 : 2, t[4], t[5]]),
         allies: heroes.filter((h) => h[3] === team && h[0] !== c.pid).map((h) => [h[1], h[2]]),
       });

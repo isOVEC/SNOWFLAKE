@@ -122,7 +122,7 @@ class Bot {
     if (th && prof.lvl >= 8 && this.mode !== 'raid' && Math.random() < 0.004 * this.aggro) {
       let best = null, bd = 3500 * 3500;
       for (const s of g.statics.values()) {
-        if (s.k !== 'b' || s.type !== 'townhall' || s.team === h.team) continue;
+        if (s.k !== 'b' || (s.type !== 'townhall' && s.type !== 'npc_hall') || s.team === h.team) continue;
         const d = (s.x - h.x) ** 2 + (s.y - h.y) ** 2;
         if (d < bd) { bd = d; best = s; }
       }
