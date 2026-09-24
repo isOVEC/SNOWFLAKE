@@ -6,7 +6,6 @@
   <title>Emberfall — осада королевств</title>
   <meta name="description" content="Фэнтези .io-стратегия: добывай ресурсы, строй крепость, рейди друзей и фарми боссов на одной огромной карте." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>" />
-  <link rel="preload" href="fonts/tiny5-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -48,9 +47,9 @@
     <div id="bottom">
       <div id="buildbar"></div>
       <div id="xprow">
-        <div id="ability" title="Умение (Пробел / ПКМ)"><div class="ab-cd"></div><span class="ab-key">␣</span></div>
+        <div id="ability" title="Умение (Пробел / ПКМ)"><div class="ab-cd"></div><span class="ab-key">Space</span></div>
         <div id="xpbar"><div id="xpfill"></div><div id="xptext"></div></div>
-        <div id="recall" title="Вернуться в ратушу (R)">🏠<span class="ab-key">R</span></div>
+        <div id="recall" title="Вернуться в ратушу (R)"><span class="ab-key">R</span></div>
       </div>
     </div>
     <div id="mapwrap" class="panel"><canvas id="minimap" width="200" height="200"></canvas><div id="biome"></div></div>
@@ -61,6 +60,7 @@
     <div id="tooltip" class="hidden"></div>
     <div id="toast"></div>
     <div id="hint" class="panel">H — помощь</div>
+    <div id="audiobtns"><button id="mus" title="Музыка (M)"></button><button id="snd" title="Звуки (N)"></button></div>
   </div>
 
   <div id="death" class="overlay hidden">
@@ -82,7 +82,10 @@
             <b>F1–F10</b> — выбрать здание, <b>ЛКМ</b> — поставить, <b>Esc/ПКМ</b> — отмена<br>
             <b>1–6</b> — вложить очко навыка<br>
             <b>E</b> — улучшить здание под курсором<br><b>X ×2</b> — снести здание под курсором<br>
-            <b>R</b> — телепорт в ратушу<br><b>Enter</b> — чат, <b>H</b> — эта справка</p>
+            <b>R</b> — телепорт в ратушу<br><b>Enter</b> — чат, <b>H</b> — эта справка<br>
+            <b>M</b> — музыка вкл/выкл, <b>N</b> — звуки вкл/выкл</p>
+          <div class="vol"><label>Музыка <input type="range" id="vol-music" min="0" max="1" step="0.05"></label>
+            <label>Звуки <input type="range" id="vol-sfx" min="0" max="1" step="0.05"></label></div>
         </div>
         <div>
           <h3>Экономика</h3>
@@ -113,7 +116,7 @@
   </div>
 
   <script src="shared.js"></script>
-  <script src="pixel.js"></script>
+  <script src="audio.js"></script>
   <script src="client.js"></script>
 </body>
 </html>

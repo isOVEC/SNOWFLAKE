@@ -208,18 +208,17 @@
 
   // ------------------------------------------------------------ buildings
   S.RES = ['wood', 'stone', 'gold'];
-  S.RES_ICON = { wood: '🪵', stone: '🪨', gold: '🪙' };
   S.BUILDINGS = {
-    townhall: { name: 'Ратуша', icon: '🏰', size: 130, hp: 3200, cost: {}, desc: 'Сердце базы: точка возрождения, радиус стройки и лимиты зданий.' },
-    wall: { name: 'Стена', icon: '🧱', size: 44, hp: 550, cost: { stone: 12 }, desc: 'Блокирует врагов. Вы и клан проходите насквозь.' },
-    tower: { name: 'Башня лучников', icon: '🏹', size: 64, hp: 950, cost: { wood: 80, stone: 50 }, range: 540, dmg: 17, rate: 0.85, desc: 'Стреляет по врагам и монстрам.' },
-    magetower: { name: 'Башня магов', icon: '🔮', size: 64, hp: 750, cost: { wood: 60, stone: 90, gold: 70 }, range: 470, dmg: 34, rate: 1.8, splash: 85, desc: 'Бьёт по области и замедляет.' },
-    sawmill: { name: 'Лесопилка', icon: '🪚', size: 76, hp: 650, cost: { wood: 40, stone: 30 }, income: { wood: 2 }, desc: 'Даёт дерево.' },
-    quarry: { name: 'Каменоломня', icon: '⛏️', size: 76, hp: 650, cost: { wood: 70 }, income: { stone: 1.6 }, desc: 'Даёт камень.' },
-    mine: { name: 'Золотой рудник', icon: '💰', size: 76, hp: 750, cost: { wood: 90, stone: 90 }, income: { gold: 1 }, desc: 'Даёт золото.' },
-    barracks: { name: 'Казарма', icon: '⚔️', size: 84, hp: 1150, cost: { wood: 150, stone: 100, gold: 80 }, desc: 'Нанимает рыцарей. Они ходят за вами в набеги.' },
-    shrine: { name: 'Святилище', icon: '✨', size: 60, hp: 650, cost: { stone: 120, gold: 120 }, heal: 12, range: 280, desc: 'Лечит вас, союзников и здания рядом.' },
-    warcamp: { name: 'Лагерь наёмников', icon: '🪓', size: 80, hp: 1000, cost: { wood: 180, stone: 120, gold: 140 }, desc: 'Нанимает наёмников: они сами бегут бить ближайших врагов.' },
+    townhall: { name: 'Ратуша', size: 130, hp: 3200, cost: {}, desc: 'Сердце базы: точка возрождения, радиус стройки и лимиты зданий.' },
+    wall: { name: 'Стена', size: 44, hp: 550, cost: { stone: 12 }, desc: 'Блокирует врагов. Вы и клан проходите насквозь.' },
+    tower: { name: 'Башня лучников', size: 64, hp: 950, cost: { wood: 80, stone: 50 }, range: 540, dmg: 17, rate: 0.85, desc: 'Стреляет по врагам и монстрам.' },
+    magetower: { name: 'Башня магов', size: 64, hp: 750, cost: { wood: 60, stone: 90, gold: 70 }, range: 470, dmg: 34, rate: 1.8, splash: 85, desc: 'Бьёт по области и замедляет.' },
+    sawmill: { name: 'Лесопилка', size: 76, hp: 650, cost: { wood: 40, stone: 30 }, income: { wood: 2 }, desc: 'Даёт дерево.' },
+    quarry: { name: 'Каменоломня', size: 76, hp: 650, cost: { wood: 70 }, income: { stone: 1.6 }, desc: 'Даёт камень.' },
+    mine: { name: 'Золотой рудник', size: 76, hp: 750, cost: { wood: 90, stone: 90 }, income: { gold: 1 }, desc: 'Даёт золото.' },
+    barracks: { name: 'Казарма', size: 84, hp: 1150, cost: { wood: 150, stone: 100, gold: 80 }, desc: 'Нанимает рыцарей. Они ходят за вами в набеги.' },
+    shrine: { name: 'Святилище', size: 60, hp: 650, cost: { stone: 120, gold: 120 }, heal: 12, range: 280, desc: 'Лечит вас, союзников и здания рядом.' },
+    warcamp: { name: 'Лагерь наёмников', size: 80, hp: 1000, cost: { wood: 180, stone: 120, gold: 140 }, desc: 'Нанимает наёмников: они сами бегут бить ближайших врагов.' },
   };
   S.BUILD_ORDER = ['townhall', 'wall', 'tower', 'magetower', 'sawmill', 'quarry', 'mine', 'barracks', 'shrine', 'warcamp'];
   S.TH_MAX = 5;
