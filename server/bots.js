@@ -1,14 +1,11 @@
 // Server-side bot heroes so the world never feels empty. Bots are regular players driven by
-// a small state machine: they farm, hunt monsters, build a base, evolve, fight and chat.
+// a small state machine: they farm, hunt monsters, build a base, evolve and fight.
+// Bots never use the chat.
 const S = require('../public/shared.js');
 
 const NAMES = ['Торин', 'Эльвира', 'Гримбольд', 'Мирель', 'Ульфрик', 'Ярослава', 'Бран', 'Ильдар', 'Сигрун', 'Фенрик',
   'Озрик', 'Лиадрин', 'Кассиан', 'Руна', 'Вейл', 'Морвен', 'Горм', 'Эйра', 'Бьорн', 'Селена', 'Дарнак', 'Ивейн'];
 const CLANS = ['', '', '', 'ОРДА', 'ТЬМА', 'ОРДА', 'ЛЕС'];
-const CHAT_IDLE = ['кто на дракона?', 'лес тут богатый', 'эх, золота бы', 'моя крепость растёт', 'кто в клан?',
-  'видел лича на севере', 'ну и волки тут', 'гг', 'осторожно, гидра рядом с болотом', 'иду рубить лес'];
-const CHAT_KILL = ['лёгкая победа', 'gg', 'ещё увидимся', 'ха!', 'не лезь на мою землю'];
-const CHAT_DIE = ['ну погоди!', 'gg', 'это был лаг', 'ещё вернусь', 'нечестно!'];
 const STAT_W = { warrior: [3, 2, 3, 2, 1, 1], ranger: [3, 3, 1, 1, 2, 1], mage: [3, 2, 2, 2, 1, 1] };
 const BUILD_PLAN = ['sawmill', 'farmhouse', 'tower', 'quarry', 'mine', 'tower', 'barracks', 'shrine', 'warcamp', 'magetower', 'tower', 'sawmill', 'quarry'];
 
@@ -29,14 +26,10 @@ class Bot {
     this.stuckCheck = 0;
     this.lastPos = null;
     this.jitter = null;
-    this.chatT = rand(60, 240);
     this.aggro = rand(0.15, 0.85);
-    this.kills = client.prof.kills;
     this.wasDead = false;
     this.respawnAt = 0;
   }
-
-  say(m) { this.game.onMessage(this.c, { t: 'chat', m }); }
 
   update() {
     const g = this.game, c = this.c, h = c.hero, prof = c.prof;
@@ -45,15 +38,11 @@ class Bot {
       if (!this.wasDead) {
         this.wasDead = true;
         this.respawnAt = g.time + rand(3.5, 7);
-        if (c.deadInfo && Math.random() < 0.35) this.say(pick(CHAT_DIE));
       }
       if (g.time > this.respawnAt) g.onMessage(c, { t: 'respawn', cls: prof.cls });
       return;
     }
     this.wasDead = false;
-    if (prof.kills > this.kills) { this.kills = prof.kills; if (Math.random() < 0.4) this.say(pick(CHAT_KILL)); }
-    this.chatT -= DT;
-    if (this.chatT <= 0) { this.chatT = rand(150, 420); this.say(pick(CHAT_IDLE)); }
     if (prof.pts > 0 && Math.random() < 0.05) this.spendPoint();
     if (prof.lvl >= S.EVOLVE_LVL && !prof.sub) {
       const opts = Object.keys(S.SUBCLASSES).filter((k) => S.SUBCLASSES[k].base === prof.cls);
@@ -126,7 +115,7 @@ class Bot {
         const d = (s.x - h.x) ** 2 + (s.y - h.y) ** 2;
         if (d < bd) { bd = d; best = s; }
       }
-      if (best) { this.mode = 'raid'; this.target = best; this.say(pick(['иду в набег!', 'пора навестить соседей', 'за золотом!'])); return; }
+      if (best) { this.mode = 'raid'; this.target = best; return; }
     }
     if (this.mode === 'raid' && this.target) return;
 

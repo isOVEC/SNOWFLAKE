@@ -399,6 +399,7 @@ class Game {
         if (msg.mob && own(S.MOBS, msg.mob)) { const m = this.spawnMob(msg.mob, h.x + rand(-250, 250), h.y - 250, 1); m.target = null; }
         break;
       case 'chat': {
+        if (client.bot) return; // chat is for real players only
         const m = String(msg.m || '').replace(/[<>]/g, '').trim().slice(0, 140);
         if (!m || this.time - (client.lastChat || -9) < 0.8) return;
         client.lastChat = this.time;

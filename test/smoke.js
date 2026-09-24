@@ -180,8 +180,13 @@ function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   const g = new Game({ bots: 6 });
   g.init(null);
   assert.strictEqual(g.botMgr.bots.length, 6);
+  const chats = [];
+  const bcast = g.broadcast.bind(g);
+  g.broadcast = (msg) => { if (msg.t === 'chat') chats.push(msg); bcast(msg); };
+  g.onMessage(g.botMgr.bots[0].c, { t: 'chat', m: 'привет' });
   const t0 = Date.now();
   for (let i = 0; i < 30 * 240; i++) g.tick();
+  assert.strictEqual(chats.length, 0, 'bots never chat');
   const ms = Date.now() - t0;
   const profs = g.botMgr.bots.map((b) => b.c.prof);
   const ths = profs.filter((p) => g.thOf(p)).length;
