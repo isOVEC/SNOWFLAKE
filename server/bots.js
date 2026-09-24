@@ -10,7 +10,7 @@ const CHAT_IDLE = ['кто на дракона?', 'лес тут богатый'
 const CHAT_KILL = ['лёгкая победа', 'gg', 'ещё увидимся', 'ха!', 'не лезь на мою землю'];
 const CHAT_DIE = ['ну погоди!', 'gg', 'это был лаг', 'ещё вернусь', 'нечестно!'];
 const STAT_W = { warrior: [3, 2, 3, 2, 1, 1], ranger: [3, 3, 1, 1, 2, 1], mage: [3, 2, 2, 2, 1, 1] };
-const BUILD_PLAN = ['sawmill', 'tower', 'quarry', 'mine', 'tower', 'barracks', 'shrine', 'warcamp', 'magetower', 'tower', 'sawmill', 'quarry'];
+const BUILD_PLAN = ['sawmill', 'farmhouse', 'tower', 'quarry', 'mine', 'tower', 'barracks', 'shrine', 'warcamp', 'magetower', 'tower', 'sawmill', 'quarry'];
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[(Math.random() * a.length) | 0];
@@ -97,7 +97,7 @@ class Bot {
       if (u === h || !g.hostile(h, u) || !g.targetable(u)) continue;
       const d = (u.x - h.x) ** 2 + (u.y - h.y) ** 2;
       if ((u.kind === 'hero' || u.kind === 'knight') && d < ed) { ed = d; enemy = u; }
-      else if (u.kind === 'mob' && d < md) { md = d; mob = u; }
+      else if (u.kind === 'mob' && d < md && (!u.def.peaceful || this.c.prof.res.food < 150)) { md = d; mob = u; }
     }
     if (enemy && (hpk > 0.55 && Math.random() < this.aggro + 0.2)) { this.mode = 'fight'; this.target = enemy; return; }
     if (mob && (!this.target || this.target.k)) { this.mode = 'fight'; this.target = mob; return; }

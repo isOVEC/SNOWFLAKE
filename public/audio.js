@@ -121,6 +121,7 @@ const AUDIO = (() => {
     bless: [{ w: 'sine', f: 523, d: 0.8, v: 0.08, a: 0.05 }, { w: 'sine', f: 659, d: 0.8, v: 0.07, a: 0.05, at: 0.06 }, { w: 'sine', f: 784, d: 0.9, v: 0.07, a: 0.05, at: 0.12 }, { w: 'sine', f: 1047, d: 1.0, v: 0.05, a: 0.05, at: 0.18 }],
     roar: [{ w: 'sawtooth', f: 95, f2: 60, d: 0.9, v: 0.22, vib: 11, vibAmt: 9, filt: 700, a: 0.08 }, N({ d: 0.8, v: 0.18, filt: 600, a: 0.08 })],
     bite: [N({ d: 0.06, v: 0.14, filt: 1500, ft: 'bandpass', q: 2 })],
+    moo: [{ w: 'sawtooth', f: 150, f2: 110, d: 0.7, v: 0.14, vib: 5, vibAmt: 4, filt: 650, a: 0.12 }, { w: 'sawtooth', f: 152, f2: 112, d: 0.7, v: 0.08, filt: 500, a: 0.12 }],
     error: [{ w: 'square', f: 150, d: 0.1, v: 0.08 }, { w: 'square', f: 120, d: 0.12, v: 0.08, at: 0.11 }],
     click: [{ w: 'square', f: 720, d: 0.035, v: 0.05 }],
     place: [{ w: 'triangle', f: 440, d: 0.05, v: 0.08 }, { w: 'triangle', f: 660, d: 0.07, v: 0.08, at: 0.05 }],
@@ -130,7 +131,7 @@ const AUDIO = (() => {
       { w: 'square', f: 784, d: 0.5, v: 0.09, at: 0.3 }, { w: 'triangle', f: 196, d: 0.8, v: 0.12, at: 0.3 }],
     gameover: [{ w: 'square', f: 392, d: 0.2, v: 0.08 }, { w: 'square', f: 349, d: 0.2, v: 0.08, at: 0.2 }, { w: 'square', f: 311, d: 0.2, v: 0.08, at: 0.4 }, { w: 'square', f: 262, d: 0.7, v: 0.09, at: 0.6 }],
   };
-  const GAP = { hit: 0.03, coin: 0.06, chop: 0.04, stone: 0.04, gold: 0.06, enemyshot: 0.05, swing: 0.03, bite: 0.05, roar: 1.5, magic: 0.04, fire: 0.04, arrow: 0.02, zap: 0.03, mobdie: 0.04 };
+  const GAP = { hit: 0.03, coin: 0.06, chop: 0.04, stone: 0.04, gold: 0.06, enemyshot: 0.05, swing: 0.03, bite: 0.05, moo: 1.2, roar: 1.5, magic: 0.04, fire: 0.04, arrow: 0.02, zap: 0.03, mobdie: 0.04 };
   const last = {};
   const view = { x: 0, y: 0 };
 

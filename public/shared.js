@@ -211,7 +211,7 @@
   };
 
   // ------------------------------------------------------------ buildings
-  S.RES = ['wood', 'stone', 'gold'];
+  S.RES = ['wood', 'stone', 'gold', 'food'];
   S.BUILDINGS = {
     townhall: { name: 'Ратуша', size: 130, hp: 3200, cost: {}, desc: 'Сердце базы: точка возрождения, радиус стройки и лимиты зданий.' },
     wall: { name: 'Стена', size: 44, hp: 550, cost: { stone: 12 }, desc: 'Блокирует врагов. Вы и клан проходите насквозь.' },
@@ -219,13 +219,14 @@
     magetower: { name: 'Башня магов', size: 64, hp: 750, cost: { wood: 60, stone: 90, gold: 70 }, range: 470, dmg: 34, rate: 1.8, splash: 85, desc: 'Бьёт по области и замедляет.' },
     sawmill: { name: 'Лесопилка', size: 76, hp: 650, cost: { wood: 40, stone: 30 }, income: { wood: 2 }, desc: 'Даёт дерево.' },
     quarry: { name: 'Каменоломня', size: 76, hp: 650, cost: { wood: 70 }, income: { stone: 1.6 }, desc: 'Даёт камень.' },
+    farmhouse: { name: 'Дом крестьян', size: 70, hp: 700, cost: { wood: 100, stone: 40 }, desc: 'Нанимает крестьян за еду. Они сами добывают ресурсы в радиусе базы и едят еду со склада.' },
     mine: { name: 'Золотой рудник', size: 76, hp: 750, cost: { wood: 90, stone: 90 }, income: { gold: 1 }, desc: 'Даёт золото.' },
     barracks: { name: 'Казарма', size: 84, hp: 1150, cost: { wood: 150, stone: 100, gold: 80 }, desc: 'Нанимает рыцарей. Они ходят за вами в набеги.' },
     shrine: { name: 'Святилище', size: 60, hp: 650, cost: { stone: 120, gold: 120 }, heal: 12, range: 280, desc: 'Лечит вас, союзников и здания рядом.' },
     npc_hall: { name: 'Дом вождя', size: 110, hp: 5000, cost: { wood: 300, stone: 300, gold: 250 }, desc: 'Сердце вражеского поселения. Снесите его ради богатой добычи.' },
     warcamp: { name: 'Лагерь наёмников', size: 80, hp: 1000, cost: { wood: 180, stone: 120, gold: 140 }, desc: 'Нанимает наёмников: они сами бегут бить ближайших врагов.' },
   };
-  S.BUILD_ORDER = ['townhall', 'wall', 'tower', 'magetower', 'sawmill', 'quarry', 'mine', 'barracks', 'shrine', 'warcamp'];
+  S.BUILD_ORDER = ['townhall', 'wall', 'tower', 'magetower', 'sawmill', 'quarry', 'mine', 'farmhouse', 'barracks', 'warcamp', 'shrine'];
   S.TH_MAX = 5;
   S.BLD_MAX = 3;
   // caps per townhall level 1..5
@@ -237,6 +238,7 @@
     sawmill: [1, 1, 2, 2, 3],
     quarry: [1, 1, 2, 2, 3],
     mine: [0, 1, 1, 2, 3],
+    farmhouse: [1, 1, 2, 2, 3],
     barracks: [0, 1, 1, 2, 2],
     shrine: [0, 0, 1, 1, 2],
     warcamp: [0, 1, 1, 2, 2],
@@ -269,7 +271,8 @@
     skeleton: { name: 'Скелет', hp: 95, r: 19, speed: 150, dmg: 14, cd: 0.9, xp: 24, gold: 6, aggro: 400 },
     imp: { name: 'Бес', hp: 80, r: 17, speed: 175, dmg: 15, cd: 1.4, xp: 30, gold: 8, aggro: 460, ranged: { speed: 480, life: 1.1, type: 'imp' }, keep: 300 },
     golem: { name: 'Голем', hp: 330, r: 30, speed: 85, dmg: 26, cd: 1.4, xp: 45, gold: 12, aggro: 330 },
-    boar: { name: 'Кабан', hp: 120, r: 22, speed: 170, dmg: 16, cd: 1.2, xp: 20, gold: 5, aggro: 360, charge: { speed: 650, dur: 0.45, cd: 4, dmg: 22 } },
+    cow: { name: 'Корова', hp: 60, r: 22, speed: 70, dmg: 0, cd: 1, xp: 5, gold: 0, food: 22, aggro: 0, peaceful: true },
+    boar: { name: 'Кабан', hp: 120, r: 22, speed: 170, dmg: 16, cd: 1.2, xp: 20, gold: 5, food: 6, aggro: 360, charge: { speed: 650, dur: 0.45, cd: 4, dmg: 22 } },
     spider: { name: 'Гигантский паук', hp: 70, r: 18, speed: 220, dmg: 9, cd: 0.8, xp: 18, gold: 4, aggro: 420, ranged: { speed: 420, life: 0.9, type: 'web', slow: 0.5 }, keep: 220 },
     troll: { name: 'Тролль', hp: 480, r: 32, speed: 95, dmg: 30, cd: 1.5, xp: 55, gold: 14, aggro: 340, regen: 0.03 },
     yeti: { name: 'Йети', hp: 380, r: 30, speed: 120, dmg: 24, cd: 1.3, xp: 50, gold: 12, aggro: 380, throw: { speed: 380, life: 1.5, type: 'snowball', slow: 0.5, cd: 3.5 } },
@@ -292,6 +295,11 @@
     { key: 'orc', name: 'Орочья крепость', biomes: [B.VOLCANO, B.SNOW], towers: 4, guards: 6, tier: 1.9 },
   ];
   S.CAMP_COUNT = 9;
+  // peasants: hire price, food upkeep, carrying capacity, work rate
+  S.PEASANT = { hire: 6, eatEvery: 15, carry: 12, work: 6, leaveAfter: 60 };
+  S.COW_CAP = 180;
+  S.peasantCap = (lvl) => 1 + lvl;
+  S.NODE_RES = { tree: 'wood', rock: 'stone', gold: 'gold' };
   S.CAMP_RESPAWN = 300;
   S.KNIGHT = { name: 'Рыцарь', hp: 110, r: 17, speed: 215, dmg: 11, cd: 0.8 };
   // other allied units that share the knight AI
@@ -300,6 +308,7 @@
     merc: { name: 'Наёмник', hp: 150, r: 17, speed: 230, dmg: 15, cd: 0.9 },
     wolf: { name: 'Волк', hp: 90, r: 17, speed: 270, dmg: 10, cd: 0.7 },
     ent: { name: 'Энт', hp: 240, r: 22, speed: 150, dmg: 17, cd: 1.2 },
+    peasant: { name: 'Крестьянин', hp: 60, r: 15, speed: 170, dmg: 0, cd: 1 },
   };
 
   // ------------------------------------------------------------ collision

@@ -75,6 +75,7 @@ class Game {
     this.nodeRespawns = [];
     this.bosses = [];
     this.mobCount = 0;
+    this.cowCount = 0;
   }
 
   // ================================================================ world gen
@@ -87,6 +88,7 @@ class Game {
     this.botMgr = new BotManager(this, this.opts.bots || 0);
     this.botMgr.start();
     for (let i = 0; i < S.MOB_CAP * 3 && this.mobCount < S.MOB_CAP; i++) this.spawnMobPack();
+    for (let i = 0; i < S.COW_CAP && this.cowCount < S.COW_CAP; i++) this.spawnHerd();
   }
 
   genNodes() {
@@ -188,6 +190,7 @@ class Game {
       p.online = false;
       p.thId = 0;
       if (!p.startPts) { p.pts += S.START_PTS; p.startPts = true; }
+      for (const r of S.RES) if (typeof p.res[r] !== 'number') p.res[r] = r === 'food' ? 30 : 0;
       this.profiles.set(p.pid, p);
       this.tokens.set(p.token, p.pid);
     }
@@ -225,7 +228,7 @@ class Game {
       token = [...Array(24)].map(() => 'abcdefghijklmnopqrstuvwxyz0123456789'[(Math.random() * 36) | 0]).join('');
       prof = {
         pid, token, name, clan, cls, lvl: 1, xp: 0, pts: S.START_PTS, startPts: true, st: [0, 0, 0, 0, 0, 0],
-        res: { wood: 60, stone: 40, gold: 20 }, glory: 0, kills: 0, thLvl: 0, thId: 0, online: false, sub: null,
+        res: { wood: 60, stone: 40, gold: 20, food: 30 }, glory: 0, kills: 0, thLvl: 0, thId: 0, online: false, sub: null,
       };
       this.profiles.set(pid, prof);
       this.tokens.set(token, pid);
@@ -392,6 +395,7 @@ class Game {
         if (isFinite(msg.x)) { h.x = +msg.x; h.y = +msg.y; }
         if (msg.res) for (const r of S.RES) prof.res[r] = 20000;
         if (msg.xp) this.giveXp(prof, +msg.xp);
+        if (msg.heal) h.hp = h.maxHp;
         if (msg.mob && own(S.MOBS, msg.mob)) { const m = this.spawnMob(msg.mob, h.x + rand(-250, 250), h.y - 250, 1); m.target = null; }
         break;
       case 'chat': {
@@ -548,6 +552,24 @@ class Game {
     }
   }
 
+  // peaceful cows graze in herds on meadows and forest glades
+  spawnHerd() {
+    for (let tries = 0; tries < 12; tries++) {
+      const x = rand(300, S.W - 300), y = rand(300, S.H - 300);
+      const b = S.biomeAt(x, y);
+      if (b !== S.B.MEADOW && b !== S.B.FOREST) continue;
+      let bad = false;
+      for (const c of this.clients) {
+        const h = c.hero;
+        if (h && !h.dead && Math.abs(h.x - x) < 1100 && Math.abs(h.y - y) < 800) { bad = true; break; }
+      }
+      if (bad) continue;
+      const n = 2 + ((Math.random() * 3) | 0);
+      for (let i = 0; i < n && this.cowCount < S.COW_CAP; i++) this.spawnMob('cow', x + rand(-90, 90), y + rand(-90, 90), 1);
+      return;
+    }
+  }
+
   spawnMob(type, x, y, tier, owner) {
     const d = S.MOBS[type];
     const m = {
@@ -559,7 +581,8 @@ class Game {
     S.resolve(p, m.r, this.sgrid.query(x, y, 200));
     m.x = p.x; m.y = p.y;
     this.units.set(m.id, m);
-    if (!owner) this.mobCount++;
+    if (d.peaceful) this.cowCount++;
+    else if (!owner) this.mobCount++;
     return m;
   }
 
@@ -588,6 +611,7 @@ class Game {
       x: bar.x + Math.cos(a) * (bar.hs + 25), y: bar.y + Math.sin(a) * (bar.hs + 25), r: k.r,
       hp: k.hp * m, maxHp: k.hp * m, dmg: k.dmg * m, cd: 0, aim: a, target: null,
       slowT: 0, slowF: 1, kbx: 0, kby: 0, lastHurt: -99,
+      worker: type === 'peasant', carry: 0, carryRes: null, hungry: false, hungryT: 0, eatT: S.PEASANT.eatEvery, job: 0, workT: 0,
       name: prof ? prof.name : bar.faction !== undefined ? 'стража: ' + S.FACTIONS[bar.faction].name : '',
     };
     this.units.set(u.id, u);
@@ -607,18 +631,7 @@ class Game {
       const prof = this.profiles.get(src.pid);
       const h = prof && prof.online ? this.units.get(prof.pid) : null;
       const gm = h && h.stats ? h.stats.gather : 1;
-      const dealt = Math.min(t.hp, amount);
-      t.hp -= amount;
-      const rate = t.type === 'tree' ? 0.36 : t.type === 'rock' ? 0.27 : 0.16;
-      const res = t.type === 'tree' ? 'wood' : t.type === 'rock' ? 'stone' : 'gold';
-      let gain = dealt * rate * gm;
-      if (t.hp <= 0) {
-        gain += (t.type === 'gold' ? 12 : 18) * gm;
-        this.removeStatic(t);
-        this.fx.push(['death', t.x, t.y, t.type === 'tree' ? 1 : t.type === 'rock' ? 2 : 4]);
-        this.nodeRespawns.push({ at: this.time + rand(45, 90), type: t.type, x: t.x, y: t.y });
-      }
-      this.fx.push(['hit', t.x, t.y, 0, t.type === 'tree' ? 1 : t.type === 'rock' ? 2 : 3]);
+      const { res, gain } = this.harvestNode(t, amount, gm);
       if (prof) this.giveRes(prof, res, gain, t.x, t.y - t.r);
       if (prof) this.giveXp(prof, gain * 0.25);
       return;
@@ -651,12 +664,30 @@ class Game {
       t.kbx += (dx / d) * src.kb;
       t.kby += (dy / d) * src.kb;
     }
+    if (t.kind === 'mob' && t.def.peaceful && src.x !== undefined) { t.fleeX = src.x; t.fleeY = src.y; t.sleep = false; }
     if (t.kind === 'boss' && src.pid) t.dmgBy.set(src.pid, (t.dmgBy.get(src.pid) || 0) + amount);
     if ((t.kind === 'mob' || t.kind === 'boss' || t.kind === 'knight') && src.unitId) {
       const att = this.units.get(src.unitId);
       if (att && !att.dead && (t.kind !== 'boss' || !t.target)) t.target = att;
     }
     if (t.hp <= 0) this.killUnit(t, src);
+  }
+
+  // chop / mine a resource node; returns what it yields
+  harvestNode(t, amount, gm) {
+    const dealt = Math.min(t.hp, amount);
+    t.hp -= amount;
+    const rate = t.type === 'tree' ? 0.36 : t.type === 'rock' ? 0.27 : 0.16;
+    const res = S.NODE_RES[t.type];
+    let gain = dealt * rate * gm;
+    if (t.hp <= 0) {
+      gain += (t.type === 'gold' ? 12 : 18) * gm;
+      this.removeStatic(t);
+      this.fx.push(['death', t.x, t.y, t.type === 'tree' ? 1 : t.type === 'rock' ? 2 : 4]);
+      this.nodeRespawns.push({ at: this.time + rand(45, 90), type: t.type, x: t.x, y: t.y });
+    }
+    this.fx.push(['hit', t.x, t.y, 0, t.type === 'tree' ? 1 : t.type === 'rock' ? 2 : 3]);
+    return { res, gain };
   }
 
   giveRes(prof, res, amount, x, y) {
@@ -728,14 +759,16 @@ class Game {
     this.units.delete(u.id);
     u.dead = true;
     if (u.kind === 'mob') {
-      if (!u.owner) this.mobCount--;
+      if (u.def.peaceful) this.cowCount--;
+      else if (!u.owner) this.mobCount--;
       else { const o = this.units.get(u.owner); if (o) o.summons--; }
       this.fx.push(['death', u.x, u.y, 5]);
       if (killer) {
         const d = u.def;
         this.giveXp(killer, d.xp * u.tier * (u.owner ? 0.3 : 1));
-        this.giveRes(killer, 'gold', d.gold * u.tier * (u.owner ? 0.3 : 1), u.x, u.y - u.r);
-        killer.glory += u.owner ? 0 : 1;
+        if (d.gold) this.giveRes(killer, 'gold', d.gold * u.tier * (u.owner ? 0.3 : 1), u.x, u.y - u.r);
+        if (d.food) this.giveRes(killer, 'food', d.food * (u.owner ? 0.3 : 1), u.x, u.y - u.r - 16);
+        if (!d.peaceful) killer.glory += u.owner ? 0 : 1;
       }
     } else if (u.kind === 'knight') {
       this.fx.push(['death', u.x, u.y, 5]);
@@ -753,7 +786,7 @@ class Game {
         if (!prof) continue;
         const share = Math.max(0.1, dmg / total);
         this.giveXp(prof, u.def.xp * share);
-        for (const r of S.RES) this.giveRes(prof, r, u.def.loot[r] * share);
+        for (const r of S.RES) this.giveRes(prof, r, (u.def.loot[r] || 0) * share);
         prof.glory += Math.round(80 * share) + 5;
         if (names.length < 4) names.push(this.dispName(prof));
       }
@@ -794,7 +827,7 @@ class Game {
           this.giveRes(killer, r, stolen[r]);
         }
         killer.glory += 25 * b.lvl;
-        this.feed(`🔥 ${this.dispName(killer)} разрушил ратушу ${this.dispName(owner)} и унёс ${stolen.wood}🪵 ${stolen.stone}🪨 ${stolen.gold}🪙`, true);
+        this.feed(`🔥 ${this.dispName(killer)} разрушил ратушу ${this.dispName(owner)} и унёс ${stolen.wood}🪵 ${stolen.stone}🪨 ${stolen.gold}🪙 ${stolen.food}🍖`, true);
       } else {
         this.feed(`🔥 Ратуша ${this.dispName(owner)} пала`);
       }
@@ -1078,6 +1111,7 @@ class Game {
     // world upkeep
     if (this.tickN % 15 === 0) {
       if (this.mobCount < S.MOB_CAP) this.spawnMobPack();
+      if (this.cowCount < S.COW_CAP) this.spawnHerd();
       this.updateSleep();
       for (let i = this.nodeRespawns.length - 1; i >= 0; i--) {
         const r = this.nodeRespawns[i];
@@ -1257,6 +1291,7 @@ class Game {
     let best = null, bd = range * range;
     for (const o of this.ugrid.query(u.x, u.y, range)) {
       if (o === u || o.dead || !this.hostile(u, o) || !this.targetable(o)) continue;
+      if (o.def && o.def.peaceful) continue;
       if (filter && !filter(o)) continue;
       const d = dist2(u, o);
       if (d < bd) { bd = d; best = o; }
@@ -1287,6 +1322,7 @@ class Game {
   updateMob(m) {
     if (m.sleep) { m.vx = m.vy = 0; return; }
     const d = m.def;
+    if (d.peaceful) return this.updateCow(m);
     m.cd -= DT;
     if (m.target && (m.target.dead || !this.units.has(m.target.id) || !this.targetable(m.target))) m.target = null;
     const homeD = Math.hypot(m.x - m.homeX, m.y - m.homeY);
@@ -1369,8 +1405,157 @@ class Game {
     }
   }
 
+  // cows graze, moo, and bolt away from whoever hurts them
+  updateCow(m) {
+    const d = m.def;
+    if (this.time - m.lastHurt < 4) {
+      const a = m.target && !m.target.dead ? m.target : m.fleeX !== undefined ? { x: m.fleeX, y: m.fleeY } : null;
+      if (a) {
+        const ang = Math.atan2(m.y - a.y, m.x - a.x) + Math.sin(this.time * 3 + m.id) * 0.4;
+        m.vx = Math.cos(ang) * d.speed * 2.6; m.vy = Math.sin(ang) * d.speed * 2.6;
+        m.aim = ang;
+        return;
+      }
+    }
+    m.target = null;
+    m.wanderT -= DT;
+    if (m.wanderT <= 0) {
+      m.wanderT = rand(3, 8);
+      if (Math.random() < 0.45) { m.wx = m.x; m.wy = m.y; } // stop and graze
+      else { m.wx = m.homeX + rand(-260, 260); m.wy = m.homeY + rand(-260, 260); }
+    }
+    this.steer(m, m.wx, m.wy, d.speed * 0.5, 10);
+    if (m.vx || m.vy) m.aim = Math.atan2(m.vy, m.vx);
+    if (this.time - m.lastHurt > 8) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.03 * DT);
+  }
+
+  // area peasants of a farmhouse work in: the owner's town radius, or around the house itself
+  workArea(bar) {
+    const prof = this.profiles.get(bar.pid);
+    const th = prof && this.thOf(prof);
+    if (th && Math.hypot(th.x - bar.x, th.y - bar.y) < S.thRadius(th.lvl) + 400) return { x: th.x, y: th.y, r: S.thRadius(th.lvl) + 250 };
+    return { x: bar.x, y: bar.y, r: 650 };
+  }
+
+  notify(pid, m, key) {
+    const prof = this.profiles.get(pid);
+    if (!prof || !prof.online) return;
+    prof.noteT = prof.noteT || {};
+    if (prof.noteT[key] && this.time - prof.noteT[key] < 45) return;
+    prof.noteT[key] = this.time;
+    const c = this.clientOf(pid);
+    if (c) c.events.push({ k: 'msg', m });
+  }
+
+  // straight-line walkers get caught on buildings: if barely moving, sidestep for a moment
+  unstick(k) {
+    if (k.detourT > 0) {
+      k.detourT -= DT;
+      const vx = k.vx, vy = k.vy;
+      k.vx = -vy * k.detourDir * 0.9 + vx * 0.3; k.vy = vx * k.detourDir * 0.9 + vy * 0.3;
+      return;
+    }
+    k.stuckT = (k.stuckT || 0) + DT;
+    if (k.stuckT < 0.8) return;
+    const moved = Math.hypot(k.x - (k.sx || 0), k.y - (k.sy || 0));
+    const wanted = Math.hypot(k.vx || 0, k.vy || 0) > 1;
+    if (wanted && moved < 25) { k.detourT = 0.9; k.detourDir = Math.random() < 0.5 ? -1 : 1; }
+    k.stuckT = 0; k.sx = k.x; k.sy = k.y;
+  }
+
+  updateWorker(k, bar) {
+    this.workerAI(k, bar);
+    if (!k.dead && this.units.has(k.id)) this.unstick(k);
+  }
+
+  workerAI(k, bar) {
+    const P = S.PEASANT;
+    const prof = this.profiles.get(k.pid);
+    // food upkeep
+    k.eatT -= DT;
+    if (k.eatT <= 0) {
+      k.eatT = P.eatEvery;
+      if (prof && prof.res.food >= 1) { prof.res.food -= 1; k.hungry = false; k.hungryT = 0; }
+      else { k.hungry = true; this.notify(k.pid, 'Крестьяне голодают! Нужна еда — охоться на коров 🐄', 'hungry'); }
+    }
+    if (k.hungry) {
+      k.hungryT += DT;
+      if (k.hungryT > P.leaveAfter) {
+        this.units.delete(k.id); this.fx.push(['death', k.x, k.y, 5]);
+        this.notify(k.pid, 'Голодный крестьянин ушёл из деревни', 'left');
+        return;
+      }
+    }
+    // run home from danger
+    if (this.tickN % 5 === k.id % 5) k.threat = this.nearestHostile(k, 240, (o) => o.kind !== 'knight' || !o.worker);
+    if (k.threat && (k.threat.dead || !this.units.has(k.threat.id) || Math.hypot(k.threat.x - k.x, k.threat.y - k.y) > 300)) k.threat = null;
+    const home = bar;
+    if (k.threat) {
+      const ang = Math.atan2(k.y - k.threat.y, k.x - k.threat.x);
+      const hx = home.x - k.x, hy = home.y - k.y;
+      const hd = Math.hypot(hx, hy) || 1;
+      // blend "away from threat" with "towards home"
+      const vx = Math.cos(ang) + (hx / hd) * 0.8, vy = Math.sin(ang) + (hy / hd) * 0.8, vd = Math.hypot(vx, vy) || 1;
+      k.vx = (vx / vd) * k.speed * 1.2; k.vy = (vy / vd) * k.speed * 1.2;
+      k.aim = Math.atan2(k.vy, k.vx);
+      k.job = 0;
+      return;
+    }
+    const idleAtHome = () => {
+      const ang = (k.id * 2.3) % 6.28;
+      this.steer(k, home.x + Math.cos(ang) * (home.hs + 30), home.y + Math.sin(ang) * (home.hs + 30), k.speed * 0.6, 12);
+      if (k.vx || k.vy) k.aim = Math.atan2(k.vy, k.vx);
+    };
+    // deliver a full load
+    if (k.carry >= P.carry || (k.carry > 0 && (k.hungry || !this.statics.has(k.job)))) {
+      const d = this.steer(k, home.x, home.y, k.speed, home.hs + k.r - 4);
+      if (k.vx || k.vy) k.aim = Math.atan2(k.vy, k.vx);
+      if (d < home.hs + k.r + 14) {
+        if (prof) this.giveRes(prof, k.carryRes, k.carry, home.x, home.y - home.hs);
+        k.carry = 0; k.carryRes = null;
+        if (!this.statics.has(k.job)) k.job = 0;
+      }
+      return;
+    }
+    if (k.hungry) return idleAtHome();
+    let node = k.job ? this.statics.get(k.job) : null;
+    if (!node && this.tickN % 10 === k.id % 10) {
+      // each peasant prefers a trade; falls back to anything nearby
+      const area = this.workArea(bar);
+      const pref = ['tree', 'rock', 'gold'][k.id % 3];
+      let best = null, bd = Infinity;
+      for (const s of this.sgrid.query(area.x, area.y, area.r)) {
+        if (s.k !== 'n' || Math.hypot(s.x - area.x, s.y - area.y) > area.r) continue;
+        const dd = Math.hypot(s.x - k.x, s.y - k.y) * (s.type === pref ? 0.5 : 1);
+        if (dd < bd) { bd = dd; best = s; }
+      }
+      if (best) { k.job = best.id; node = best; }
+    }
+    if (!node) return idleAtHome();
+    const d = Math.hypot(node.x - k.x, node.y - k.y);
+    k.aim = Math.atan2(node.y - k.y, node.x - k.x);
+    if (d > node.r + k.r + 10) { this.steer(k, node.x, node.y, k.speed, node.r + k.r); return; }
+    k.vx = k.vy = 0;
+    k.workT -= DT;
+    if (k.workT <= 0) {
+      k.workT = 1;
+      k.atk = (k.atk || 0) + 1;
+      const res = S.NODE_RES[node.type];
+      if (k.carryRes && k.carryRes !== res && k.carry > 0) { k.job = 0; return; }
+      const got = this.harvestNode(node, P.work * S.lvlMul(bar.lvl), 1);
+      k.carryRes = got.res;
+      k.carry = Math.min(P.carry, k.carry + got.gain);
+      if (!this.statics.has(node.id)) k.job = 0;
+    }
+  }
+
   updateKnight(k) {
     k.cd -= DT;
+    if (k.worker) {
+      const bar = this.statics.get(k.bar);
+      if (!bar) { this.units.delete(k.id); this.fx.push(['death', k.x, k.y, 5]); return; }
+      return this.updateWorker(k, bar);
+    }
     const bar = k.bar ? this.statics.get(k.bar) : null;
     let anchor, leash, seek;
     if (k.pet) {
@@ -1743,6 +1928,17 @@ class Game {
             for (const u of this.units.values()) if (u.kind === 'knight' && u.bar === b.id) n++;
             if (n < 1 + b.lvl) this.spawnKnight(b);
           }
+        } else if (b.type === 'farmhouse') {
+          b.acc++;
+          if (b.acc >= 8) {
+            b.acc = 0;
+            let n = 0;
+            for (const u of this.units.values()) if (u.kind === 'knight' && u.bar === b.id) n++;
+            if (n < S.peasantCap(b.lvl)) {
+              if (prof.res.food >= S.PEASANT.hire) { prof.res.food -= S.PEASANT.hire; this.spawnKnight(b, 'peasant'); }
+              else this.notify(prof.pid, 'Дому крестьян не хватает еды, чтобы нанять работника', 'hire');
+            }
+          }
         } else if (b.type === 'npc_hall') {
           b.acc++;
           if (b.acc >= 12) {
@@ -1808,7 +2004,10 @@ class Game {
             (e.stealthT > 0 ? 1 : 0) | (e.bastionT > 0 ? 2 : 0) | (e.shieldT > 0 ? 4 : 0) | (e.rageT > 0 ? 8 : 0));
         }
         else if (e.kind === 'boss') row.push(e.hp < e.maxHp * 0.4 ? 1 : 0, Math.round(e.hp), e.maxHp, e.atkN || 0);
-        else row.push(e.atk || 0, e.slowT > 0 ? 1 : 0, e.pid || 0, e.tier || 1);
+        else {
+          row.push(e.atk || 0, e.slowT > 0 ? 1 : 0, e.pid || 0, e.tier || 1);
+          if (e.worker) row.push((e.carry > 0 ? 1 + S.RES.indexOf(e.carryRes) : 0) | (e.hungry ? 8 : 0) | (e.threat ? 16 : 0));
+        }
         u.push(row);
       }
       const pr = [];
@@ -1828,7 +2027,7 @@ class Game {
         } : null,
         pf: {
           lvl: prof.lvl, xp: Math.floor(prof.xp), xpn: S.xpFor(prof.lvl), pts: prof.pts, st: prof.st, cls: prof.cls, sub: prof.sub || 0,
-          res: [Math.floor(prof.res.wood), Math.floor(prof.res.stone), Math.floor(prof.res.gold)], cap: S.resCap(th ? th.lvl : 0),
+          res: S.RES.map((r) => Math.floor(prof.res[r])), cap: S.resCap(th ? th.lvl : 0),
           glory: prof.glory, thLvl: prof.thLvl, th: th ? [th.x, th.y, th.lvl, th.id] : 0,
         },
       };

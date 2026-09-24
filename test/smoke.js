@@ -240,3 +240,45 @@ function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   }
   console.log('camps, new monsters and bosses ok:', g.camps.length, 'camps');
 }
+
+// farmhouse peasants gather near the base, eat food, starve without it; cows give food
+{
+  const g = new Game({ camps: 0 });
+  g.init(null);
+  const c = { ws: null, sent: [], events: [], sendRaw() {}, send() {} };
+  g.onMessage(c, { t: 'join', name: 'фермер', cls: 'ranger' });
+  const cx = 6000, cy = 8000;
+  for (const st of [...g.statics.values()]) if (Math.hypot(st.x - cx, st.y - cy) < 900) g.removeStatic(st);
+  for (const u of [...g.units.values()]) if (u.kind === 'mob' && Math.hypot(u.x - cx, u.y - cy) < 1500) { g.units.delete(u.id); if (u.def.peaceful) g.cowCount--; else g.mobCount--; }
+  c.hero.x = cx; c.hero.y = cy + 250;
+  Object.assign(c.prof.res, { wood: 900, stone: 900, gold: 900, food: 60 });
+  g.onMessage(c, { t: 'build', type: 'townhall', x: cx, y: cy });
+  g.onMessage(c, { t: 'build', type: 'farmhouse', x: cx + 220, y: cy });
+  assert.strictEqual(g.countOf(c.pid, 'farmhouse'), 1, 'farmhouse built');
+  g.addNode('tree', cx - 250, cy - 150);
+  g.addNode('rock', cx + 150, cy - 280);
+  g.addNode('gold', cx - 120, cy + 300);
+  const wood0 = c.prof.res.wood, stone0 = c.prof.res.stone;
+  for (let i = 0; i < 30 * 45; i++) { c.hero.x = cx; c.hero.y = cy + 250; g.tick(); }
+  const peasants = [...g.units.values()].filter((u) => u.worker && u.pid === c.pid);
+  assert.ok(peasants.length >= 2, 'peasants hired: ' + peasants.length);
+  assert.ok(c.prof.res.food < 60, 'food spent on hiring and upkeep');
+  assert.ok(c.prof.res.wood + c.prof.res.stone > wood0 + stone0, 'peasants delivered resources');
+  // starve them
+  c.prof.res.food = 0;
+  for (let i = 0; i < 30 * 90; i++) { c.hero.x = cx; c.hero.y = cy + 250; g.tick(); }
+  assert.ok(![...g.units.values()].some((u) => u.worker && u.pid === c.pid), 'hungry peasants leave');
+  // cows are peaceful, flee and give food
+  assert.ok(g.cowCount > 50, 'cows spawned: ' + g.cowCount);
+  const cow = g.spawnMob('cow', cx, cy + 400, 1);
+  c.hero.x = cx; c.hero.y = cy + 330;
+  g.hurt(cow, 10, g.srcOf(c.hero, true));
+  const y0 = cow.y;
+  for (let i = 0; i < 15; i++) g.tick();
+  assert.ok(cow.y > y0 + 20, 'cow flees');
+  assert.strictEqual(c.hero.hp, c.hero.maxHp, 'cow never attacks');
+  const food0 = c.prof.res.food;
+  g.hurt(cow, 1e6, g.srcOf(c.hero, true));
+  assert.ok(c.prof.res.food > food0, 'cow gives food');
+  console.log(`farm ok: ${peasants.length} peasants, cows ${g.cowCount}`);
+}
