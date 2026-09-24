@@ -1,70 +1,122 @@
-# Getting Started with Create React App
+# 🏰 Emberfall — осада королевств
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Браузерная фэнтези-**.io**-стратегия, чтобы залипать вечерами с друзьями. Одна огромная карта (25 000×25 000),
+на ней все игроки сразу: бегаешь героем как в diep.io, рубишь лес и камень, ставишь крепость как в Clash of Clans,
+ходишь в набеги на базы друзей и вместе фармишь боссов.
 
-## Available Scripts
+![скриншот](docs/screenshot.png)
 
-In the project directory, you can run:
+## Что есть в игре
 
-### `npm start`
+- **3 класса героя**: ⚔️ Воин (дуга мечом + рывок), 🏹 Следопыт (стрелы + залп из 9 стрел), 🔮 Маг (огненные шары по области + ледяная нова).
+- **Прокачка как в diep.io**: опыт → уровни (до 40) → очки в 6 навыков: урон, скорость атаки, здоровье, регенерация, скорость бега, добыча. На старте — 5 очков.
+- **Эволюция на 10 уровне** — у каждого класса три пути:
+  - Воин → **Кавалерист** (конь, копьё, таран), **Щитоносец** (щит −40% урона спереди, бастион), **Берсерк** (топор, вампиризм, ярость);
+  - Следопыт → **Снайпер** (арбалет, пробивающие болты), **Зверолов** (ручные волки, клич стаи), **Ловчий теней** (кинжалы, шаг в тень и невидимость);
+  - Маг → **Маг молний** (цепная молния, гроза), **Друид** (шипы, корни, лечение), **Святой маг** (лечащие сферы, аура, благословение).
+  - **На 20 уровне** умения усиливаются: бастион отражает снаряды, берсерк крутит вихрь, друид зовёт энтов, стая больше и т.д.
+- **Ресурсы**: 🪵 дерево, 🪨 камень, 🪙 золото и 🍖 еда. Дерево, камень и золото добываются ударами по деревьям, скалам и золотым жилам,
+  падают с монстров и боссов. Еду дают **коровы** — мирные стада на лугах и в лесах (не нападают, убегают, если их бить) — и немного кабаны.
+- **6 биомов**: луга, лес, горы, снега, болота, вулкан — чем опаснее биом, тем сильнее монстры и жирнее награда.
+- **Монстры**: волки, гоблины-лучники, слизни, скелеты, бесы, големы, кабаны (таранят с разбега), гигантские пауки
+  (замедляющая паутина), тролли (быстро регенерируют), йети (кидают снежки), саламандры и призраки.
+- **NPC-поселения** трёх фракций — гоблинский форт, лагерь разбойников и орочья крепость: дом вождя, башни,
+  частокол и стража. Снесите дом вождя — получите много ресурсов и опыта; через 5 минут поселение отстроится.
+- **8 видов боссов** (13 логов) со своими паттернами атак (bullet-hell) и анимацией атаки:
+  Древний Энт, Король-Лич, Болотная Гидра, Каменный Колосс, Огненный Дракон, Королева пауков,
+  Ледяной великан и Минотавр.
+  Добыча делится по нанесённому урону, при <40% HP босс впадает в ярость, после смерти возрождается через 3 минуты.
+- **11 зданий**: ратуша (точка возрождения, радиус базы, лимиты, склад), стены, башня лучников, башня магов,
+  лесопилка, каменоломня, золотой рудник, **дом крестьян** (нанимает крестьян за еду: они сами рубят деревья и копают камень
+  и золото в радиусе базы, носят добычу домой и едят 1 🍖 раз в 15 с; без еды бросают работу и через минуту уходят,
+  от врагов убегают), казарма (рыцари, которые ходят за тобой в набег), святилище (лечит),
+  лагерь наёмников (наёмники сами бегут бить ближайших врагов).
+  Всё улучшается; ратуша — до 5 уровня, остальные — до 3.
+- **PvP и набеги**: все, кто не в твоём клане, — враги. Разрушил чужую ратушу — забрал 30% её запасов.
+  Убил героя — украл 20% его золота. Базы остаются на карте, даже когда хозяин офлайн (а шахты приносят доход вполсилы).
+- **Кланы**: одинаковый тег клана = союзники (без огня по своим, свои стены пропускают, общий цвет).
+- **Боты**: по умолчанию в мире живут 6 ботов — фармят, строят базы, качаются, эволюционируют и ходят в набеги. Чат только для живых игроков — боты в него не пишут.
+- Чат, облачка сообщений над головами, лента событий, таблица славы, миникарта с базами и логовами.
+- Мир сохраняется на диск (`data/world.json`), прогресс привязан к браузеру (токен в localStorage).
+- **Графика и звук целиком из кода**: всё рисуется векторно на Canvas, иконки генерируются там же, а звуки и музыка
+  синтезируются через Web Audio (`public/audio.js`) — в проекте нет ни одной картинки или аудиофайла.
+- **Музыка** меняется по ситуации: тема меню, своя мелодия для каждого биома и боевая тема рядом с боссами и врагами.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Управление
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+| Клавиша | Действие |
+|---|---|
+| **WASD / стрелки** | движение |
+| **ЛКМ (зажать)** | атака / добыча |
+| **Пробел / ПКМ** | умение класса |
+| **F1–F11** | выбрать здание, ЛКМ — поставить (стены можно «рисовать», зажав ЛКМ; Shift — ставить несколько), Esc/ПКМ — отмена |
+| **1–6** | вложить очко навыка |
+| **E** | улучшить своё здание под курсором |
+| **X ×2** | снести своё здание под курсором (вернёт 50%) |
+| **R** | телепорт в ратушу (3.5 с, прерывается уроном) |
+| **Enter** | чат |
+| **M / N** | музыка / звуки вкл-выкл (громкость — в справке) |
+| **H** | справка |
 
-### `npm test`
+## Быстрый старт
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Нужен Node.js 18+.
 
-### `npm run build`
+```bash
+npm install
+npm start
+# открыть http://localhost:3000
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Для разработки: `npm run dev` (перезапуск сервера при изменении файлов), `npm test` — headless-тест симуляции.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Как играть с друзьями
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+Сервер один, все подключаются к нему через браузер.
 
-### `npm run eject`
+**В одной сети (LAN / общий Wi-Fi).** Запусти `npm start` и дай друзьям адрес `http://<твой-локальный-IP>:3000`.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+**Через интернет без сервера — туннель.** На своём компьютере:
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+```bash
+npm start
+# в другом терминале, любой из вариантов:
+npx cloudflared tunnel --url http://localhost:3000   # Cloudflare Quick Tunnel, бесплатно
+npx localtunnel --port 3000
+```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Туннель выдаст публичную ссылку `https://…` — кидаешь её друзьям. WebSocket работает через оба варианта.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+**На VPS / хостинге (чтобы мир жил 24/7).**
 
-## Learn More
+```bash
+docker build -t emberfall .
+docker run -d -p 3000:3000 -v emberfall-data:/app/data --restart unless-stopped emberfall
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Подойдёт любой хостинг Node.js с поддержкой WebSocket (Railway, Render, Fly.io, свой VPS).
+Порт берётся из переменной `PORT`, папка сохранений — из `DATA_DIR` (по умолчанию `./data`),
+число ботов — из `BOTS` (по умолчанию 6, `BOTS=0` — без ботов).
+На бесплатных тарифах с эфемерным диском мир будет сбрасываться при перезапуске — подключите постоянный том.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Как устроено
 
-### Code Splitting
+```
+server/index.js   HTTP-сервер статики + WebSocket, фиксированный цикл 30 тиков/с, автосохранение мира
+server/game.js    авторитарная симуляция: герои и подклассы, мобы, боссы, союзные юниты, снаряды, здания, экономика, PvP
+server/bots.js    ИИ ботов-игроков
+public/shared.js  общий код сервера и клиента: константы, баланс, биомы, коллизии, движение героя
+public/client.js  Canvas-рендер, предсказание движения со сверкой по серверу, интерполяция, интерфейс
+public/audio.js   синтез звуковых эффектов и генеративная чиптюн-музыка на Web Audio
+test/smoke.js     headless-тест: боты строят базы, воюют, бьют боссов; проверка сохранения/загрузки
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+- Сервер авторитарный: клиент шлёт только ввод (30 раз/с), сервер считает всё сам.
+- Своё движение клиент **предсказывает** той же функцией `S.moveHero`, что и сервер, и пересчитывает
+  неподтверждённый ввод после каждого снапшота — управление отзывчивое даже с пингом.
+- Остальные сущности **интерполируются** между снапшотами (15 в секунду) с задержкой ~110 мс.
+- Клиенту уходят только объекты в поле зрения; сообщения сжимаются `permessage-deflate`.
+- Весь баланс (классы, здания, стоимость, лимиты, монстры, боссы) — в `public/shared.js`.
+- Звуки позиционные: громкость и стерео-панорама зависят от того, где на экране произошло событие.
 
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Для отладки: `DEV=1 npm start` включает сообщение `{t:'dev'}` (телепорт, ресурсы, опыт), без флага оно игнорируется.

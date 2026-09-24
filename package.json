@@ -1,39 +1,18 @@
 {
-  "name": "my-app",
-  "version": "0.1.0",
+  "name": "emberfall",
+  "version": "1.0.0",
+  "description": "Emberfall — браузерная фэнтези .io-стратегия: добывай, строй, рейди друзей и фарми боссов на одной огромной карте",
   "private": true,
-  "dependencies": {
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^13.5.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
-  },
+  "main": "server/index.js",
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node test/smoke.js"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+  "engines": {
+    "node": ">=18"
   },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+  "dependencies": {
+    "ws": "^8.21.3"
   }
 }

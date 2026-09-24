@@ -1,43 +1,122 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Emberfall — осада королевств</title>
+  <meta name="description" content="Фэнтези .io-стратегия: добывай ресурсы, строй крепость, рейди друзей и фарми боссов на одной огромной карте." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
+  <!-- ============ main menu ============ -->
+  <div id="menu" class="overlay">
+    <div class="menu-card">
+      <h1 class="logo">EMBERFALL</h1>
+      <div class="subtitle">осада королевств</div>
+      <div class="row">
+        <input id="name" maxlength="16" placeholder="Имя героя" autocomplete="off" />
+        <input id="clan" maxlength="5" placeholder="Клан" autocomplete="off" title="Игроки с одинаковым тегом клана — союзники" />
+      </div>
+      <div class="classes" id="classes"></div>
+      <button id="play" class="big-btn">В бой</button>
+      <div id="conn" class="conn"></div>
+      <ul class="tips">
+        <li><b>WASD</b> — движение, <b>ЛКМ</b> — атака, <b>Пробел/ПКМ</b> — умение</li>
+        <li>Бейте деревья, камни и золотые жилы, чтобы добывать ресурсы</li>
+        <li><b>F1</b> — поставить ратушу, <b>F2–F11</b> — башни, стены, шахты, дом крестьян, казармы</li>
+        <li><b>1–6</b> — вкладывать очки навыков, на <b>10 ур.</b> — эволюция класса</li>
+        <li>Одинаковый тег клана = союзники. Остальные — законная добыча</li>
+      </ul>
+    </div>
+  </div>
 
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
+  <!-- ============ HUD ============ -->
+  <div id="hud" class="hidden">
+    <div id="res" class="panel"></div>
+    <div id="lb" class="panel"><div class="lb-title">Слава</div><div id="lb-list"></div><div id="online"></div></div>
+    <div id="feed"></div>
+    <div id="evolve" class="panel hidden">
+      <div class="evo-title">Эволюция класса — выберите путь (клик или 7 / 8 / 9)</div>
+      <div id="evolve-cards"></div>
+    </div>
+    <div id="bossbar" class="hidden"><div class="boss-name"></div><div class="boss-track"><div class="boss-fill"></div></div></div>
+    <div id="stats" class="panel"></div>
+    <div id="bottom">
+      <div id="buildbar"></div>
+      <div id="xprow">
+        <div id="ability" title="Умение (Пробел / ПКМ)"><div class="ab-cd"></div><span class="ab-key">Space</span></div>
+        <div id="xpbar"><div id="xpfill"></div><div id="xptext"></div></div>
+        <div id="recall" title="Вернуться в ратушу (R)"><span class="ab-key">R</span></div>
+      </div>
+    </div>
+    <div id="mapwrap" class="panel"><canvas id="minimap" width="200" height="200"></canvas><div id="biome"></div></div>
+    <div id="chat">
+      <div id="chatlog"></div>
+      <input id="chatin" maxlength="140" placeholder="Enter — написать в чат" autocomplete="off" />
+    </div>
+    <div id="tooltip" class="hidden"></div>
+    <div id="toast"></div>
+    <div id="hint" class="panel">H — помощь</div>
+    <div id="audiobtns"><button id="mus" title="Музыка (M)"></button><button id="snd" title="Звуки (N)"></button></div>
+  </div>
 
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
-  </body>
+  <div id="death" class="overlay hidden">
+    <div class="menu-card small">
+      <h2>Вы пали</h2>
+      <div id="deathby"></div>
+      <div class="classes" id="classes2"></div>
+      <button id="respawn" class="big-btn">Возродиться</button>
+    </div>
+  </div>
+
+  <div id="help" class="overlay hidden">
+    <div class="menu-card help">
+      <h2>Как играть</h2>
+      <div class="help-grid">
+        <div>
+          <h3>Управление</h3>
+          <p><b>WASD / стрелки</b> — движение<br><b>ЛКМ (зажать)</b> — атака<br><b>Пробел / ПКМ</b> — умение класса<br>
+            <b>F1–F11</b> — выбрать здание, <b>ЛКМ</b> — поставить, <b>Esc/ПКМ</b> — отмена<br>
+            <b>1–6</b> — вложить очко навыка<br>
+            <b>E</b> — улучшить здание под курсором<br><b>X ×2</b> — снести здание под курсором<br>
+            <b>R</b> — телепорт в ратушу<br><b>Enter</b> — чат, <b>H</b> — эта справка<br>
+            <b>M</b> — музыка вкл/выкл, <b>N</b> — звуки вкл/выкл</p>
+          <div class="vol"><label>Музыка <input type="range" id="vol-music" min="0" max="1" step="0.05"></label>
+            <label>Звуки <input type="range" id="vol-sfx" min="0" max="1" step="0.05"></label></div>
+        </div>
+        <div>
+          <h3>Экономика</h3>
+          <p>Бейте <b>деревья</b>, <b>камни</b> и <b>золотые жилы</b>. Монстры дают золото и опыт.
+            Лесопилки, каменоломни и рудники приносят ресурсы даже когда вы офлайн (вполсилы).
+            Склад ограничен — улучшайте ратушу.</p>
+        </div>
+        <div>
+          <h3>Война</h3>
+          <p>Все, кто не в вашем клане, — враги. Разрушьте чужую <b>ратушу</b> — и заберёте 30% её запасов.
+            Убийство героя крадёт 20% его золота. Казарма даёт рыцарей, которые идут с вами в набег.
+            Стены пропускают вас и клан, но держат врагов. Лагерь наёмников сам отправляет бойцов на ближайших врагов.</p>
+        </div>
+        <div>
+          <h3>Эволюция</h3>
+          <p>На <b>10 уровне</b> каждый класс выбирает путь: воин — кавалерист, щитоносец или берсерк; следопыт — снайпер,
+            зверолов или ловчий теней; маг — маг молний, друид или святой маг. На <b>20 уровне</b> умения усиливаются.
+            Смена класса при возрождении сбрасывает путь.</p>
+        </div>
+        <div>
+          <h3>Боссы</h3>
+          <p>Пять боссов в своих логовах: Энт (лес), Лич (снега), Гидра (болота), Колосс (горы), Дракон (вулкан).
+            Добыча делится по нанесённому урону. Возрождаются через 3 минуты. Ниже 40% здоровья — впадают в ярость.</p>
+        </div>
+      </div>
+      <button class="big-btn" id="helpclose">Понятно</button>
+    </div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="audio.js"></script>
+  <script src="client.js"></script>
+</body>
 </html>
